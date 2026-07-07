@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: yango-tasks
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "HOST=0.0.0.0 DB_PATH=/var/data/yango_tasks.db UPLOAD_DIR=/var/data/uploads python3 app.py"
+    disk:
+      name: yango-tasks-data
+      mountPath: /var/data
+      sizeGB: 1

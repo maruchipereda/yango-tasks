@@ -1,0 +1,12 @@
+yango_alerts.db
+yango_alerts.db-*
+yango_credential_requests.db
+yango_credential_requests.db-*
+yango_tasks.db
+yango_tasks.db-*
+uploads/
+__pycache__/
+.DS_Store
+.env
+.venv/
+*.pyc

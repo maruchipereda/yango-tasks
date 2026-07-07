@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Yango Tasks</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <section id="loginView" class="login-screen">
+      <div class="login-card">
+        <div class="brand-mark">YANGO</div>
+        <h1>Tareas</h1>
+        <form id="loginForm" class="login-form">
+          <label>Email
+            <input id="loginEmail" type="email" autocomplete="username" />
+          </label>
+          <label>Clave
+            <input id="loginPassword" type="password" autocomplete="current-password" />
+          </label>
+          <button type="submit">Entrar</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="appView" class="app-shell hidden">
+      <svg class="icon-sprite" aria-hidden="true">
+        <symbol id="icon-dashboard" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
+          <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
+          <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
+          <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
+        </symbol>
+        <symbol id="icon-team" viewBox="0 0 24 24">
+          <circle cx="9" cy="8" r="3.5"></circle>
+          <path d="M3.5 20a5.5 5.5 0 0 1 11 0"></path>
+          <circle cx="17" cy="9" r="2.8"></circle>
+          <path d="M15.5 16.5c2.8.2 5 1.6 5 3.5"></path>
+        </symbol>
+        <symbol id="icon-categories" viewBox="0 0 24 24">
+          <path d="M4 7.5V5a2 2 0 0 1 2-2h4.5l2 2H18a2 2 0 0 1 2 2v10.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"></path>
+          <path d="M8 12h8"></path>
+          <path d="M8 16h5"></path>
+        </symbol>
+        <symbol id="icon-users" viewBox="0 0 24 24">
+          <circle cx="12" cy="7.5" r="3.5"></circle>
+          <path d="M5 21a7 7 0 0 1 14 0"></path>
+          <path d="M18.5 5.5l2 2"></path>
+          <path d="M20.5 5.5l-2 2"></path>
+        </symbol>
+        <symbol id="icon-logout" viewBox="0 0 24 24">
+          <path d="M10 4H5.8A1.8 1.8 0 0 0 4 5.8v12.4A1.8 1.8 0 0 0 5.8 20H10"></path>
+          <path d="M14 8l4 4-4 4"></path>
+          <path d="M8 12h10"></path>
+        </symbol>
+      </svg>
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-logo"><span class="brand-full">YANGO</span><span class="brand-mini">Y</span></span>
+          <div class="brand-copy">
+            <strong>Tasks</strong>
+            <small id="sessionLabel"></small>
+          </div>
+          <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="Colapsar menú" aria-expanded="true">‹</button>
+        </div>
+        <nav>
+          <button class="nav-btn active" type="button" data-view="mine" title="Mi panel"><svg class="nav-icon"><use href="#icon-dashboard"></use></svg><span class="nav-label">Mi panel</span></button>
+          <button class="nav-btn" type="button" data-view="team" title="Equipo"><svg class="nav-icon"><use href="#icon-team"></use></svg><span class="nav-label">Equipo</span></button>
+          <button class="nav-btn admin-only" type="button" data-view="categories" title="Categorías"><svg class="nav-icon"><use href="#icon-categories"></use></svg><span class="nav-label">Categorías</span></button>
+          <button class="nav-btn admin-only" type="button" data-view="users" title="Usuarios"><svg class="nav-icon"><use href="#icon-users"></use></svg><span class="nav-label">Usuarios</span></button>
+        </nav>
+        <button id="logoutBtn" class="sidebar-logout" type="button" title="Salir"><svg class="nav-icon"><use href="#icon-logout"></use></svg><span class="nav-label">Salir</span></button>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Dashboard</p>
+            <h2 id="viewTitle">Mi panel</h2>
+          </div>
+          <div class="topbar-actions">
+            <div id="dueWindowControl" class="due-window-control" aria-label="Filtrar pendientes por fecha límite">
+              <span>Vencen</span>
+              <button type="button" data-due-window="today">Hoy</button>
+              <button type="button" data-due-window="this_week">Esta semana</button>
+              <button type="button" data-due-window="next_week">Semana que viene</button>
+            </div>
+            <button id="newTaskBtn" type="button"><span>+</span> Nueva tarea</button>
+          </div>
+        </header>
+
+        <section id="mine" class="view active">
+          <div class="metrics">
+            <div><span id="metricMineOpen">0</span><small>pendientes</small></div>
+            <div><span id="metricMineHelp">0</span><small>necesitan ayuda</small></div>
+            <div><span id="metricMineDue">0</span><small>por vencer</small></div>
+            <div><span id="metricMineDone">0</span><small>done</small></div>
+          </div>
+          <div class="filters">
+            <div id="mineStatusFilter" class="filter-menu" data-filter-menu="status"></div>
+            <select id="mineCategoryFilter" aria-label="Categoría"></select>
+            <select id="minePriorityFilter" aria-label="Prioridad">
+              <option value="">Todas las prioridades</option>
+              <option value="alta">Alta</option>
+              <option value="media">Media</option>
+              <option value="baja">Baja</option>
+            </select>
+            <input id="mineSearch" placeholder="Buscar" />
+          </div>
+          <div id="mineBoard" class="board"></div>
+        </section>
+
+        <section id="team" class="view">
+          <div class="metrics">
+            <div><span id="metricTeamOpen">0</span><small>abiertas</small></div>
+            <div><span id="metricTeamHelp">0</span><small>necesitan ayuda</small></div>
+            <div><span id="metricTeamPeople">0</span><small>personas</small></div>
+            <div><span id="metricTeamDone">0</span><small>done</small></div>
+          </div>
+          <div class="filters">
+            <div id="teamAssigneeFilter" class="filter-menu" data-filter-menu="assignee"></div>
+            <div id="teamStatusFilter" class="filter-menu" data-filter-menu="status"></div>
+            <select id="teamCategoryFilter" aria-label="Categoría"></select>
+            <button id="exportBtn" class="secondary" type="button">CSV</button>
+          </div>
+          <div id="teamBoard" class="people-grid"></div>
+        </section>
+
+        <section id="categories" class="view">
+          <div class="manager-head">
+            <h3>Categorías</h3>
+            <button id="newCategoryBtn" type="button"><span>+</span> Categoría</button>
+          </div>
+          <div id="categoryGrid" class="management-grid"></div>
+          <div class="manager-head status-manager-head">
+            <h3>Estados</h3>
+            <button id="newStatusBtn" type="button"><span>+</span> Estado</button>
+          </div>
+          <div id="statusGrid" class="management-grid"></div>
+        </section>
+
+        <section id="users" class="view">
+          <div class="manager-head">
+            <h3>Usuarios</h3>
+            <button id="newUserBtn" type="button"><span>+</span> Usuario</button>
+          </div>
+          <div id="userGrid" class="management-grid"></div>
+        </section>
+      </main>
+    </section>
+
+    <div id="taskModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
+      <div class="modal-backdrop" data-close-modal></div>
+      <form id="taskForm" class="modal-panel">
+        <div class="modal-head">
+          <h3 id="taskModalTitle">Nueva tarea</h3>
+          <button class="icon-button" type="button" data-close-modal aria-label="Cerrar">×</button>
+        </div>
+        <input id="taskId" type="hidden" />
+        <div class="form-grid">
+          <label class="span-2">Título
+            <input id="taskTitle" required maxlength="120" />
+          </label>
+          <label>Responsables
+            <div id="taskAssignee" class="filter-menu assignee-picker" data-filter-menu="assignee" data-empty-label="Seleccionar responsables" data-values=""></div>
+            <span class="field-help">Puedes seleccionar varias personas.</span>
+          </label>
+          <label>Categoría
+            <select id="taskCategory"></select>
+          </label>
+          <label>Estado
+            <select id="taskStatus"></select>
+          </label>
+          <label>Prioridad
+            <select id="taskPriority">
+              <option value="alta">Alta</option>
+              <option value="media">Media</option>
+              <option value="baja">Baja</option>
+            </select>
+          </label>
+          <label>Fecha límite
+            <input id="taskDueDate" type="date" />
+          </label>
+          <label>Link de ticket o archivo
+            <input id="taskRelatedLink" type="url" placeholder="https://" />
+          </label>
+          <label>Recurrencia
+            <select id="taskRecurrence">
+              <option value="">No se repite</option>
+              <option value="7d">Cada 7 días</option>
+              <option value="14d">Cada 14 días</option>
+              <option value="monthly">1 vez al mes</option>
+            </select>
+          </label>
+          <label id="taskRecurrenceNextWrap">Próxima creación
+            <input id="taskRecurrenceNext" type="date" />
+          </label>
+          <label class="span-2">Archivo relacionado
+            <input id="taskAttachment" type="file" />
+          </label>
+          <div class="span-2 notes-editor">
+            <div class="segmented" role="group" aria-label="Tipo de notas">
+              <button class="active" type="button" data-notes-mode="notes">Notas</button>
+              <button type="button" data-notes-mode="checklist">To dos</button>
+            </div>
+            <label id="notesTextWrap">Notas
+              <textarea id="taskDescription" rows="4"></textarea>
+            </label>
+            <div id="checklistWrap" class="checklist-editor hidden">
+              <div id="checklistItems" class="checklist-items"></div>
+              <button id="addChecklistItem" class="secondary" type="button">+ Item</button>
+            </div>
+          </div>
+        </div>
+        <div class="actions">
+          <button type="submit">Guardar</button>
+          <button class="secondary" type="button" data-close-modal>Cancelar</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="categoryModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="categoryModalTitle">
+      <div class="modal-backdrop" data-close-category></div>
+      <form id="categoryForm" class="modal-panel compact-modal">
+        <div class="modal-head">
+          <h3 id="categoryModalTitle">Categoría</h3>
+          <button class="icon-button" type="button" data-close-category aria-label="Cerrar">×</button>
+        </div>
+        <input id="categoryId" type="hidden" />
+        <label>Nombre
+          <input id="categoryName" required />
+        </label>
+        <label>Color
+          <input id="categoryColor" type="color" value="#ff1f1f" />
+        </label>
+        <label>Descripción
+          <textarea id="categoryDescription" rows="3"></textarea>
+        </label>
+        <label class="check-row">
+          <input id="categoryActive" type="checkbox" checked />
+          <span>Activa</span>
+        </label>
+        <div class="actions">
+          <button type="submit">Guardar</button>
+          <button class="secondary" type="button" data-close-category>Cancelar</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="statusModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="statusModalTitle">
+      <div class="modal-backdrop" data-close-status></div>
+      <form id="statusForm" class="modal-panel compact-modal">
+        <div class="modal-head">
+          <h3 id="statusModalTitle">Estado</h3>
+          <button class="icon-button" type="button" data-close-status aria-label="Cerrar">×</button>
+        </div>
+        <input id="statusKey" type="hidden" />
+        <label>Nombre
+          <input id="statusLabel" required />
+        </label>
+        <label>Color
+          <input id="statusColor" type="color" value="#deded5" />
+        </label>
+        <label>Orden
+          <input id="statusOrder" type="number" min="1" step="1" value="100" />
+        </label>
+        <label class="check-row">
+          <input id="statusActive" type="checkbox" checked />
+          <span>Activo</span>
+        </label>
+        <div class="actions">
+          <button type="submit">Guardar</button>
+          <button class="secondary" type="button" data-close-status>Cancelar</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="userModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="userModalTitle">
+      <div class="modal-backdrop" data-close-user></div>
+      <form id="userForm" class="modal-panel compact-modal">
+        <div class="modal-head">
+          <h3 id="userModalTitle">Usuario</h3>
+          <button class="icon-button" type="button" data-close-user aria-label="Cerrar">×</button>
+        </div>
+        <input id="userId" type="hidden" />
+        <label>Nombre
+          <input id="userName" required />
+        </label>
+        <label>Email
+          <input id="userEmail" type="email" required />
+        </label>
+        <label>Rol
+          <select id="userRole">
+            <option value="admin">Admin</option>
+            <option value="manager">Manager</option>
+            <option value="colaborador">Colaborador</option>
+          </select>
+        </label>
+        <label>Equipo
+          <input id="userTeam" value="Operaciones" />
+        </label>
+        <label>Clave
+          <input id="userPassword" type="password" autocomplete="new-password" />
+        </label>
+        <label class="check-row">
+          <input id="userActive" type="checkbox" checked />
+          <span>Activo</span>
+        </label>
+        <div class="actions">
+          <button type="submit">Guardar</button>
+          <button class="secondary" type="button" data-close-user>Cancelar</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="toast"></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
