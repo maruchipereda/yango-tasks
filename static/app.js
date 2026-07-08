@@ -348,12 +348,11 @@ function taskCard(task) {
         <span>${escapeHtml(task.assignee_name || "Sin responsable")}</span>
         <span class="${overdue ? "danger-text" : soon ? "warn-text" : ""}">${formatDate(task.due_date)}</span>
       </div>
-      <div class="status-pills" role="group" aria-label="Estado de tarea">
-        ${activeStatuses(task.status).map((status) => `
-          <button class="status-pill ${task.status === status.key ? "active" : ""}" style="--status-color:${escapeHtml(status.color)}" type="button" data-status-task="${task.id}" data-status-value="${escapeHtml(status.key)}">
-            ${escapeHtml(status.label)}
-          </button>
-        `).join("")}
+      <div class="card-status" style="--status-color:${escapeHtml(statusColor(task.status))}">
+        <span>Estado</span>
+        <select class="card-status-select" data-status-task="${task.id}" aria-label="Cambiar estado de ${escapeHtml(task.title)}">
+          ${statusOptions(task.status)}
+        </select>
       </div>
       <div class="task-links">
         ${task.related_link ? `<a href="${escapeHtml(task.related_link)}" target="_blank" rel="noreferrer">Ticket o Archivo</a>` : ""}
@@ -717,15 +716,6 @@ document.addEventListener("click", async (event) => {
   const editTask = event.target.closest("[data-edit-task]");
   if (editTask) openTask(state.tasks.find((task) => Number(task.id) === Number(editTask.dataset.editTask)));
 
-  const statusButton = event.target.closest("[data-status-task]");
-  if (statusButton) {
-    try {
-      await updateTaskStatus(statusButton.dataset.statusTask, statusButton.dataset.statusValue);
-    } catch (error) {
-      toast(error.message);
-    }
-  }
-
   const notesMode = event.target.closest("[data-notes-mode]");
   if (notesMode) setNotesMode(notesMode.dataset.notesMode);
 
@@ -794,6 +784,16 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("change", async (event) => {
+  const statusSelect = event.target.closest(".card-status-select[data-status-task]");
+  if (statusSelect) {
+    try {
+      await updateTaskStatus(statusSelect.dataset.statusTask, statusSelect.value);
+    } catch (error) {
+      toast(error.message);
+    }
+    return;
+  }
+
   const filterOption = event.target.closest("[data-filter-option]");
   if (filterOption) {
     const menu = $(`#${filterOption.dataset.filterOption}`);

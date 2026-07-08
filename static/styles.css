@@ -690,31 +690,32 @@ body.sidebar-collapsed .sidebar-logout {
   font-weight: 850;
 }
 
-.status-pills {
+.card-status {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.status-pill {
-  min-height: 30px;
+  grid-template-columns: auto minmax(120px, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
   border: 1px solid var(--line);
-  padding: 5px 7px;
-  background: #f7f7f2;
-  color: #373530;
+  border-left: 4px solid var(--status-color, var(--red));
+  border-radius: 7px;
+  background: #fbfbf7;
+}
+
+.card-status span {
+  color: var(--muted);
   font-size: 11px;
+  font-weight: 900;
+}
+
+.card-status-select {
+  min-height: 30px;
+  border: 0;
+  padding: 3px 26px 3px 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
   font-weight: 850;
-}
-
-.status-pill.active {
-  border-color: var(--status-color, #111);
-  background: var(--status-color, #111);
-  color: #fff;
-}
-
-.status-pill-done.active {
-  border-color: var(--green);
-  background: var(--green);
 }
 
 .checklist-preview {
