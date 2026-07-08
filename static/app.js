@@ -365,7 +365,9 @@ function taskCard(task) {
         </select>
       </div>
       <div class="task-links">
-        ${task.related_link ? `<a href="${escapeHtml(task.related_link)}" target="_blank" rel="noreferrer">Ticket o Archivo</a>` : ""}
+        ${(task.related_links || (task.related_link ? [task.related_link] : [])).map((link, index) => `
+          <a href="${escapeHtml(link)}" target="_blank" rel="noreferrer">Ticket o Archivo ${index + 1}</a>
+        `).join("")}
         ${task.attachment_url ? `<a href="${escapeHtml(task.attachment_url + tokenQuery)}" target="_blank" rel="noreferrer">${escapeHtml(task.attachment_name || "Archivo")}</a>` : ""}
       </div>
       ${task.recurrence_interval ? `<div class="recurrence-pill">${escapeHtml(RECURRENCE[task.recurrence_interval] || "Recurrente")} · próxima ${formatDate(task.recurrence_next_date)}</div>` : ""}
@@ -635,6 +637,29 @@ function checklistFromEditor() {
     .filter((item) => item.text);
 }
 
+function relatedLinkEditorItem(value = "") {
+  const wrap = document.createElement("div");
+  wrap.className = "related-link-line";
+  wrap.innerHTML = `
+    <input type="url" value="${escapeHtml(value)}" placeholder="https://" data-related-link />
+    <button class="icon-action danger-action" type="button" data-remove-related-link>Quitar</button>
+  `;
+  return wrap;
+}
+
+function renderRelatedLinksEditor(links = []) {
+  const target = $("#taskRelatedLinks");
+  target.innerHTML = "";
+  const source = links.length ? links : [""];
+  source.forEach((link) => target.appendChild(relatedLinkEditorItem(link)));
+}
+
+function relatedLinksFromEditor() {
+  return [...document.querySelectorAll("[data-related-link]")]
+    .map((input) => input.value.trim())
+    .filter(Boolean);
+}
+
 function syncRecurrenceFields({ fillDefault = true } = {}) {
   const interval = $("#taskRecurrence").value;
   $("#taskRecurrenceNextWrap").classList.toggle("hidden", !interval);
@@ -658,7 +683,7 @@ function openTask(task = null) {
   $("#taskStatus").innerHTML = statusOptions(task?.status || "todo");
   $("#taskPriority").value = task?.priority || "media";
   $("#taskDueDate").value = task?.due_date || "";
-  $("#taskRelatedLink").value = task?.related_link || "";
+  renderRelatedLinksEditor(task?.related_links || (task?.related_link ? [task.related_link] : []));
   $("#taskRecurrence").value = task?.recurrence_interval || "";
   $("#taskRecurrenceNext").value = task?.recurrence_next_date || "";
   syncRecurrenceFields({ fillDefault: false });
@@ -782,10 +807,20 @@ document.addEventListener("click", async (event) => {
     $("#checklistItems").appendChild(checklistEditorItem());
   }
 
+  if (event.target.closest("#addRelatedLink")) {
+    $("#taskRelatedLinks").appendChild(relatedLinkEditorItem());
+  }
+
   const removeChecklist = event.target.closest("[data-remove-checklist]");
   if (removeChecklist) {
     removeChecklist.closest(".checklist-edit-line").remove();
     if (!$("#checklistItems").children.length) $("#checklistItems").appendChild(checklistEditorItem());
+  }
+
+  const removeRelatedLink = event.target.closest("[data-remove-related-link]");
+  if (removeRelatedLink) {
+    removeRelatedLink.closest(".related-link-line").remove();
+    if (!$("#taskRelatedLinks").children.length) $("#taskRelatedLinks").appendChild(relatedLinkEditorItem());
   }
 
   const deleteTask = event.target.closest("[data-delete-task]");
@@ -906,7 +941,7 @@ $("#taskForm").addEventListener("submit", async (event) => {
         status: $("#taskStatus").value,
         priority: $("#taskPriority").value,
         due_date: $("#taskDueDate").value,
-        related_link: $("#taskRelatedLink").value,
+        related_links: relatedLinksFromEditor(),
         recurrence_interval: $("#taskRecurrence").value,
         recurrence_next_date: $("#taskRecurrenceNext").value,
         attachment_file: await readFile($("#taskAttachment")),

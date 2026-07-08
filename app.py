@@ -302,6 +302,21 @@ def normalize_checklist(items):
     return normalized[:24]
 
 
+def normalize_related_links(value):
+    if isinstance(value, str):
+        raw_links = [value]
+    elif isinstance(value, list):
+        raw_links = value
+    else:
+        raw_links = []
+    links = []
+    for item in raw_links:
+        link = clean_text(item.get("url") or item.get("href")) if isinstance(item, dict) else clean_text(item)
+        if link and link not in links:
+            links.append(link[:500])
+    return links[:12]
+
+
 def public_task(row):
     data = row_to_dict(row)
     if not data:
@@ -326,6 +341,14 @@ def public_task(row):
         data["checklist_items"] = normalize_checklist(json.loads(data.get("checklist_json") or "[]"))
     except json.JSONDecodeError:
         data["checklist_items"] = []
+    try:
+        related_links = normalize_related_links(json.loads(data.get("related_links_json") or "[]"))
+    except json.JSONDecodeError:
+        related_links = []
+    if not related_links and data.get("related_link"):
+        related_links = normalize_related_links(data.get("related_link"))
+    data["related_links"] = related_links
+    data["related_link"] = related_links[0] if related_links else clean_text(data.get("related_link"))
     data["attachment_url"] = "/" + data["attachment_path"] if data.get("attachment_path") else ""
     return data
 
@@ -638,6 +661,8 @@ def ensure_task_columns(con):
         con.execute("alter table tasks add column recurrence_source_id integer")
     if "recurrence_run_date" not in existing:
         con.execute("alter table tasks add column recurrence_run_date text")
+    if "related_links_json" not in existing:
+        con.execute("alter table tasks add column related_links_json text not null default '[]'")
 
 
 def tasks_table_sql():
@@ -652,6 +677,7 @@ def tasks_table_sql():
             priority text not null check (priority in ('alta', 'media', 'baja')),
             due_date text,
             related_link text,
+            related_links_json text not null default '[]',
             attachment_path text,
             attachment_name text,
             attachment_type text,
@@ -717,8 +743,8 @@ def ensure_tasks_status_flexible(con):
     con.execute(tasks_table_sql())
     columns = [
         "id", "title", "description", "assigned_user_id", "category_id", "status", "priority",
-        "due_date", "related_link", "attachment_path", "attachment_name", "attachment_type",
-        "notes_mode", "checklist_json", "recurrence_interval", "recurrence_next_date",
+        "due_date", "related_link", "related_links_json", "attachment_path", "attachment_name",
+        "attachment_type", "notes_mode", "checklist_json", "recurrence_interval", "recurrence_next_date",
         "recurrence_source_id", "recurrence_run_date", "created_by", "created_at", "updated_at",
     ]
     joined = ", ".join(columns)
@@ -773,10 +799,10 @@ def create_due_recurring_tasks(con):
                     """
                     insert into tasks (
                         title, description, assigned_user_id, category_id, status, priority,
-                        due_date, related_link, attachment_path, attachment_name, attachment_type,
+                        due_date, related_link, related_links_json, attachment_path, attachment_name, attachment_type,
                         notes_mode, checklist_json, recurrence_interval, recurrence_next_date,
                         recurrence_source_id, recurrence_run_date, created_by, created_at, updated_at
-                    ) values (?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?, ?, ?, ?, '', null, ?, ?, ?, ?, ?)
+                    ) values (?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?, ?, ?, ?, ?, '', null, ?, ?, ?, ?, ?)
                     """,
                     (
                         task["title"],
@@ -786,6 +812,7 @@ def create_due_recurring_tasks(con):
                         task["priority"],
                         due_date,
                         task.get("related_link"),
+                        task.get("related_links_json") or "[]",
                         task.get("attachment_path"),
                         task.get("attachment_name"),
                         task.get("attachment_type"),
@@ -1024,7 +1051,7 @@ class Handler(BaseHTTPRequestHandler):
                         item.get("status_label") or item["status"],
                         item["priority"],
                         item.get("due_date") or "",
-                        item.get("related_link") or "",
+                        " | ".join(item.get("related_links") or ([item.get("related_link")] if item.get("related_link") else [])),
                         item["updated_at"],
                     ]
                 )
@@ -1071,6 +1098,11 @@ class Handler(BaseHTTPRequestHandler):
                 if notes_mode not in ("notes", "checklist"):
                     return send_json(self, {"error": "Modo de notas inválido"}, 400)
                 checklist_json = json.dumps(normalize_checklist(body.get("checklist_items")), ensure_ascii=False)
+                related_links = normalize_related_links(body.get("related_links"))
+                if not related_links and clean_text(body.get("related_link")):
+                    related_links = normalize_related_links(body.get("related_link"))
+                related_link = related_links[0] if related_links else ""
+                related_links_json = json.dumps(related_links, ensure_ascii=False)
                 recurrence_interval, recurrence_next_date = normalize_recurrence(body)
                 timestamp = now_iso()
                 with DB_LOCK:
@@ -1094,7 +1126,7 @@ class Handler(BaseHTTPRequestHandler):
                                 """
                                 update tasks set
                                     title = ?, description = ?, assigned_user_id = ?, category_id = ?,
-                                    status = ?, priority = ?, due_date = ?, related_link = ?,
+                                    status = ?, priority = ?, due_date = ?, related_link = ?, related_links_json = ?,
                                     attachment_path = ?, attachment_name = ?, attachment_type = ?,
                                     notes_mode = ?, checklist_json = ?,
                                     recurrence_interval = ?, recurrence_next_date = ?,
@@ -1109,7 +1141,8 @@ class Handler(BaseHTTPRequestHandler):
                                     status,
                                     priority,
                                     clean_text(body.get("due_date")),
-                                    clean_text(body.get("related_link")),
+                                    related_link,
+                                    related_links_json,
                                     attachment_path,
                                     attachment_name,
                                     attachment_type,
@@ -1128,10 +1161,10 @@ class Handler(BaseHTTPRequestHandler):
                                 """
                                 insert into tasks (
                                     title, description, assigned_user_id, category_id, status, priority,
-                                    due_date, related_link, attachment_path, attachment_name, attachment_type,
+                                    due_date, related_link, related_links_json, attachment_path, attachment_name, attachment_type,
                                     notes_mode, checklist_json, recurrence_interval, recurrence_next_date,
                                     created_by, created_at, updated_at
-                                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 """,
                                 (
                                     title,
@@ -1141,7 +1174,8 @@ class Handler(BaseHTTPRequestHandler):
                                     status,
                                     priority,
                                     clean_text(body.get("due_date")),
-                                    clean_text(body.get("related_link")),
+                                    related_link,
+                                    related_links_json,
                                     attachment_path,
                                     attachment_name,
                                     attachment_type,

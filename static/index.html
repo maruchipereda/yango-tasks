@@ -187,9 +187,13 @@
           <label>Fecha límite
             <input id="taskDueDate" type="date" />
           </label>
-          <label>Link de ticket o archivo
-            <input id="taskRelatedLink" type="url" placeholder="https://" />
-          </label>
+          <div class="span-2 related-links-editor">
+            <div class="field-head">
+              <span>Tickets o archivos</span>
+              <button id="addRelatedLink" class="secondary tiny-action" type="button">+ Ticket o Archivo</button>
+            </div>
+            <div id="taskRelatedLinks"></div>
+          </div>
           <label>Recurrencia
             <select id="taskRecurrence">
               <option value="">No se repite</option>
