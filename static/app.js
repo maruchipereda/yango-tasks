@@ -382,15 +382,17 @@ function taskCard(task) {
 function checklistPreview(task) {
   const items = task.checklist_items || [];
   if (!items.length) return `<div class="checklist-preview empty-checklist">Sin to dos</div>`;
+  const pending = items.map((item, index) => ({ item, index })).filter((entry) => !entry.item.done);
+  if (!pending.length) return `<div class="checklist-preview empty-checklist">To dos completados</div>`;
   return `
     <div class="checklist-preview">
-      ${items.slice(0, 5).map((item, index) => `
-        <label class="checklist-line ${item.done ? "done" : ""}">
-          <input type="checkbox" ${item.done ? "checked" : ""} data-card-check="${task.id}" data-check-index="${index}" />
-          <span>${escapeHtml(item.text)}</span>
+      ${pending.slice(0, 5).map((entry) => `
+        <label class="checklist-line">
+          <input type="checkbox" data-card-check="${task.id}" data-check-index="${entry.index}" />
+          <span>${escapeHtml(entry.item.text)}</span>
         </label>
       `).join("")}
-      ${items.length > 5 ? `<small>+${items.length - 5} más</small>` : ""}
+      ${pending.length > 5 ? `<small>+${pending.length - 5} más pendientes</small>` : ""}
     </div>
   `;
 }
