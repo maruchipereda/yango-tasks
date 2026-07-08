@@ -18,6 +18,7 @@ const state = {
   categories: [],
   statuses: [],
   tasks: [],
+  userWorkload: { users: [], statuses: [] },
   activeView: "mine",
   dueWindow: "",
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "1",
@@ -283,6 +284,12 @@ async function loadTasks() {
   render();
 }
 
+async function loadUserWorkload() {
+  const payload = await api("/api/users/workload");
+  state.userWorkload = payload;
+  renderUserWorkload();
+}
+
 async function bootstrap() {
   const payload = await api("/api/bootstrap");
   state.user = payload.user;
@@ -325,7 +332,10 @@ function setView(view) {
   $("#viewTitle").textContent = titles[view];
   renderDueWindowControl();
   if (view === "categories") renderCategories();
-  if (view === "users") renderUsers();
+  if (view === "users") {
+    renderUsers();
+    loadUserWorkload().catch((error) => toast(error.message));
+  }
   if (view === "mine" || view === "team") loadTasks().catch((error) => toast(error.message));
 }
 
@@ -534,6 +544,54 @@ function renderUsers() {
       </div>
     </article>
   `).join("");
+  renderUserWorkload();
+}
+
+function renderUserWorkload() {
+  const target = $("#userWorkloadTable");
+  if (!target) return;
+  const users = state.userWorkload.users || [];
+  const statuses = state.userWorkload.statuses || [];
+  if (!users.length || !statuses.length) {
+    target.innerHTML = `<div class="empty-state wide">Todavía no hay pendientes abiertos para mapear.</div>`;
+    return;
+  }
+  target.innerHTML = `
+    <table class="workload-table">
+      <thead>
+        <tr>
+          <th>Usuario</th>
+          ${statuses.map((status) => `
+            <th>
+              <span class="workload-status">
+                <span class="category-dot" style="--dot:${escapeHtml(status.color)}"></span>
+                ${escapeHtml(status.label)}
+              </span>
+            </th>
+          `).join("")}
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${users.map((user) => {
+          const counts = user.counts || {};
+          return `
+            <tr>
+              <th>
+                <span>${escapeHtml(user.name)}</span>
+                <small>${escapeHtml(user.role)} · ${escapeHtml(user.team || "Sin equipo")}</small>
+              </th>
+              ${statuses.map((status) => {
+                const value = Number(counts[status.key] || 0);
+                return `<td class="${value ? "" : "is-empty"}">${value}</td>`;
+              }).join("")}
+              <td class="workload-total">${Number(user.total_open || 0)}</td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
 }
 
 function render() {
@@ -654,6 +712,7 @@ async function refreshBootstrapLists() {
   hydrateControls();
   renderCategories();
   renderUsers();
+  if (state.activeView === "users") await loadUserWorkload();
   await loadTasks();
 }
 

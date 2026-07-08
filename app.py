@@ -352,6 +352,71 @@ def list_users_for(user):
         ]
 
 
+def user_workload_for(user):
+    with DB_LOCK:
+        with db() as con:
+            create_due_recurring_tasks(con)
+
+    where, params = visible_user_where(user)
+    with db() as con:
+        users = [
+            public_user(row)
+            for row in con.execute(
+                f"select * from users {where} order by active desc, name collate nocase",
+                params,
+            )
+        ]
+        if not users:
+            return {"users": [], "statuses": []}
+
+        user_ids = [item["id"] for item in users]
+        placeholders = ",".join("?" for _ in user_ids)
+        count_rows = [
+            row_to_dict(row)
+            for row in con.execute(
+                f"""
+                select task_assignees.user_id, tasks.status, count(distinct tasks.id) as count
+                from task_assignees
+                join tasks on tasks.id = task_assignees.task_id
+                left join statuses on statuses.key = tasks.status
+                where task_assignees.user_id in ({placeholders})
+                  and coalesce(statuses.is_done, 0) = 0
+                group by task_assignees.user_id, tasks.status
+                """,
+                user_ids,
+            )
+        ]
+        used_statuses = sorted({row["status"] for row in count_rows if row.get("status")})
+        status_params = list(used_statuses)
+        status_clause = "or key in ({})".format(",".join("?" for _ in used_statuses)) if used_statuses else ""
+        statuses = [
+            public_status(row)
+            for row in con.execute(
+                f"""
+                select *
+                from statuses
+                where is_done = 0 and (active = 1 {status_clause})
+                order by sort_order, label collate nocase
+                """,
+                status_params,
+            )
+        ]
+
+    counts_by_user = {item["id"]: {} for item in users}
+    for row in count_rows:
+        user_counts = counts_by_user.setdefault(row["user_id"], {})
+        user_counts[row["status"]] = row["count"]
+
+    workload_users = []
+    for item in users:
+        counts = counts_by_user.get(item["id"], {})
+        user_data = dict(item)
+        user_data["counts"] = counts
+        user_data["total_open"] = sum(int(value or 0) for value in counts.values())
+        workload_users.append(user_data)
+    return {"users": workload_users, "statuses": statuses}
+
+
 def list_categories():
     with db() as con:
         return [
@@ -920,6 +985,11 @@ class Handler(BaseHTTPRequestHandler):
             if user is None:
                 return
             return send_json(self, {"users": list_users_for(user)})
+        if parsed.path == "/api/users/workload":
+            user = require_user(self)
+            if user is None:
+                return
+            return send_json(self, user_workload_for(user))
         if parsed.path == "/api/categories":
             user = require_user(self)
             if user is None:

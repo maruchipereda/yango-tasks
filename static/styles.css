@@ -869,6 +869,101 @@ body.sidebar-collapsed .sidebar-logout {
   border-top: 1px solid var(--line);
 }
 
+.workload-head {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.workload-panel {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.workload-table-wrap {
+  overflow-x: auto;
+}
+
+.workload-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+}
+
+.workload-table th,
+.workload-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 11px 12px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.workload-table thead th {
+  background: #fbfbf7;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.workload-table th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 210px;
+  background: #fff;
+  text-align: left;
+}
+
+.workload-table thead th:first-child {
+  z-index: 2;
+  background: #fbfbf7;
+}
+
+.workload-table tbody th span,
+.workload-table tbody th small {
+  display: block;
+}
+
+.workload-table tbody th span {
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.workload-table tbody th small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.workload-table tbody td {
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.workload-table tbody tr:last-child th,
+.workload-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.workload-table td.is-empty {
+  color: #c6c6bd;
+}
+
+.workload-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.workload-total {
+  color: var(--red);
+}
+
 .management-card {
   display: grid;
   gap: 14px;
