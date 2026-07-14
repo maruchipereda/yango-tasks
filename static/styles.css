@@ -583,12 +583,15 @@ body.sidebar-collapsed .sidebar-logout {
 .column-body,
 .person-tasks {
   display: grid;
+  min-width: 0;
   gap: 10px;
   padding: 10px;
 }
 
 .task-card {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 9px;
   padding: 12px;
   box-shadow: 0 8px 20px rgba(17, 17, 17, 0.04);
@@ -660,18 +663,28 @@ body.sidebar-collapsed .sidebar-logout {
 }
 
 .task-card h4 {
+  min-width: 0;
   font-size: 15px;
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .task-card p {
+  min-width: 0;
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .task-meta {
+  min-width: 0;
   justify-content: space-between;
   font-size: 12px;
   font-weight: 800;
+}
+
+.task-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .danger-text {
@@ -684,6 +697,7 @@ body.sidebar-collapsed .sidebar-logout {
 
 .task-links a {
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .recurrence-pill {
@@ -698,7 +712,10 @@ body.sidebar-collapsed .sidebar-logout {
 
 .card-status {
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   gap: 8px;
   align-items: center;
   padding: 6px 8px;
@@ -715,6 +732,8 @@ body.sidebar-collapsed .sidebar-logout {
 }
 
 .card-status-select {
+  width: 100%;
+  min-width: 0;
   min-height: 30px;
   border: 0;
   padding: 3px 26px 3px 8px;
@@ -838,6 +857,7 @@ body.sidebar-collapsed .sidebar-logout {
 }
 
 .person-panel {
+  min-width: 0;
   overflow: hidden;
 }
 
