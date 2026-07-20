@@ -150,6 +150,13 @@ function categoryOptions(selected = "") {
     .join("");
 }
 
+function categoryOptionsList(selectedValues = []) {
+  const selected = new Set(selectedValues.map(String));
+  return state.categories
+    .filter((category) => category.active || selected.has(String(category.id)))
+    .map((category) => ({ value: String(category.id), label: category.name }));
+}
+
 function filterCategoryOptions() {
   return `<option value="">Todas las categorías</option>${state.categories
     .filter((category) => category.active)
@@ -200,18 +207,18 @@ function assigneeOptionsList() {
 }
 
 function filterLabel(kind, values, emptyLabel = "") {
-  const fallback = kind === "status" ? "Todos los estados" : "Todos los responsables";
+  const fallback = kind === "status" ? "Todos los estados" : kind === "category" ? "Sin categoría" : "Todos los responsables";
   if (!values.length) return emptyLabel || fallback;
-  const source = kind === "status" ? statusOptionsList(values) : assigneeOptionsList();
+  const source = kind === "status" ? statusOptionsList(values) : kind === "category" ? categoryOptionsList(values) : assigneeOptionsList();
   if (values.length === 1) return source.find((item) => item.value === values[0])?.label || "1 seleccionado";
-  return `${values.length} seleccionados`;
+  return `${values.length} ${kind === "category" ? "seleccionadas" : "seleccionados"}`;
 }
 
 function renderFilterMenu(id, kind) {
   const node = $(`#${id}`);
   const values = selectedValues(node);
-  const source = kind === "status" ? statusOptionsList(values) : assigneeOptionsList();
-  const emptyLabel = node.dataset.emptyLabel || (kind === "status" ? "Todos los estados" : "Todos los responsables");
+  const source = kind === "status" ? statusOptionsList(values) : kind === "category" ? categoryOptionsList(values) : assigneeOptionsList();
+  const emptyLabel = node.dataset.emptyLabel || (kind === "status" ? "Todos los estados" : kind === "category" ? "Sin categoría" : "Todos los responsables");
   const disabled = node.dataset.disabled === "true";
   node.dataset.values = values.join(",");
   node.innerHTML = `
@@ -308,9 +315,10 @@ function hydrateControls() {
   $("#mineCategoryFilter").innerHTML = filterCategoryOptions();
   $("#teamCategoryFilter").innerHTML = filterCategoryOptions();
   $("#taskStatus").innerHTML = statusOptions("todo");
-  $("#taskCategory").innerHTML = categoryOptions();
   $("#taskAssignee").dataset.values = String(state.user?.id || "");
   renderFilterMenu("taskAssignee", "assignee");
+  $("#taskCategory").dataset.values = "";
+  renderFilterMenu("taskCategory", "category");
 }
 
 function applyPermissions() {
@@ -343,13 +351,17 @@ function taskCard(task) {
   const overdue = isOverdue(task.due_date, task.status);
   const soon = isSoon(task.due_date) && !overdue && !isDoneStatus(task.status);
   const done = isDoneStatus(task.status);
-  const color = task.category_color || "#111111";
+  const categories = task.categories?.length ? task.categories : [{ name: task.category_name || "Sin categoría", color: task.category_color || "#111111" }];
   const tokenQuery = state.auth?.token ? `?token=${encodeURIComponent(state.auth.token)}` : "";
   return `
     <article class="task-card priority-${task.priority} ${overdue ? "is-overdue" : ""} ${done ? "is-done" : ""}" data-task-id="${task.id}">
       <div class="task-top">
-        <span class="category-dot" style="--dot:${escapeHtml(color)}"></span>
-        <span class="task-category">${escapeHtml(task.category_name || "Sin categoría")}</span>
+        ${categories.map((category) => `
+          <span class="task-category" style="--dot:${escapeHtml(category.color || "#111111")}">
+            <span class="category-dot"></span>
+            ${escapeHtml(category.name || "Sin categoría")}
+          </span>
+        `).join("")}
         <span class="priority">${escapeHtml(task.priority)}</span>
       </div>
       <h4>${escapeHtml(task.title)}</h4>
@@ -681,7 +693,8 @@ function openTask(task = null) {
   $("#taskAssignee").dataset.values = (task?.assigned_user_ids || [state.user.id]).map((id) => String(id)).join(",");
   $("#taskAssignee").dataset.disabled = state.user.role === "colaborador" ? "true" : "false";
   renderFilterMenu("taskAssignee", "assignee");
-  $("#taskCategory").innerHTML = categoryOptions(task?.category_id || "");
+  $("#taskCategory").dataset.values = (task?.category_ids || (task?.category_id ? [task.category_id] : [])).map((id) => String(id)).join(",");
+  renderFilterMenu("taskCategory", "category");
   $("#taskStatus").innerHTML = statusOptions(task?.status || "todo");
   $("#taskPriority").value = task?.priority || "media";
   $("#taskDueDate").value = task?.due_date || "";
@@ -897,7 +910,7 @@ document.addEventListener("change", async (event) => {
     menu.dataset.values = values.join(",");
     renderFilterMenu(menu.id, menu.dataset.filterMenu);
     menu.querySelector(".filter-popover")?.classList.remove("hidden");
-    if (menu.id === "taskAssignee") return;
+    if (menu.id === "taskAssignee" || menu.id === "taskCategory") return;
     try {
       await loadTasks();
     } catch (error) {
@@ -939,7 +952,7 @@ $("#taskForm").addEventListener("submit", async (event) => {
         notes_mode: state.notesMode,
         checklist_items: checklistFromEditor(),
         assigned_user_ids: selectedValues($("#taskAssignee")),
-        category_id: $("#taskCategory").value,
+        category_ids: selectedValues($("#taskCategory")),
         status: $("#taskStatus").value,
         priority: $("#taskPriority").value,
         due_date: $("#taskDueDate").value,

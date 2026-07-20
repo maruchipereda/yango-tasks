@@ -261,6 +261,11 @@ def task_assignee_teams(task):
     return [item for item in raw.split("||") if item]
 
 
+def task_category_ids(task):
+    raw = clean_text(task.get("category_ids") or task.get("category_id"))
+    return [int(item) for item in raw.split("||") if clean_text(item).isdigit()]
+
+
 def task_select(clause=""):
     return f"""
         select
@@ -274,6 +279,27 @@ def task_select(clause=""):
             statuses.color as status_color,
             statuses.sort_order as status_sort_order,
             statuses.is_done as status_is_done,
+            coalesce(
+                (select group_concat(categories.id, '||')
+                 from task_categories
+                 join categories on categories.id = task_categories.category_id
+                 where task_categories.task_id = tasks.id),
+                tasks.category_id
+            ) as category_ids,
+            coalesce(
+                (select group_concat(categories.name, '||')
+                 from task_categories
+                 join categories on categories.id = task_categories.category_id
+                 where task_categories.task_id = tasks.id),
+                categories.name
+            ) as category_names,
+            coalesce(
+                (select group_concat(categories.color, '||')
+                 from task_categories
+                 join categories on categories.id = task_categories.category_id
+                 where task_categories.task_id = tasks.id),
+                categories.color
+            ) as category_colors,
             categories.name as category_name,
             categories.color as category_color
         from tasks
@@ -333,6 +359,18 @@ def public_task(row):
         {"id": ids[index], "name": names[index], "email": emails[index] if index < len(emails) else "", "team": teams[index] if index < len(teams) else ""}
         for index in range(min(len(ids), len(names)))
     ]
+    category_ids = task_category_ids(data)
+    category_names = [item for item in clean_text(data.get("category_names") or data.get("category_name")).split("||") if item]
+    category_colors = [item for item in clean_text(data.get("category_colors") or data.get("category_color")).split("||") if item]
+    data["category_ids"] = category_ids
+    data["category_id"] = category_ids[0] if category_ids else data.get("category_id")
+    data["categories"] = [
+        {"id": category_ids[index], "name": category_names[index], "color": category_colors[index] if index < len(category_colors) else "#111111"}
+        for index in range(min(len(category_ids), len(category_names)))
+    ]
+    if data["categories"]:
+        data["category_name"] = data["categories"][0]["name"]
+        data["category_color"] = data["categories"][0]["color"]
     data["notes_mode"] = data.get("notes_mode") or "notes"
     data["status_label"] = data.get("status_label") or data.get("status")
     data["status_color"] = data.get("status_color") or "#111111"
@@ -542,7 +580,20 @@ def list_tasks_for(user, query):
         where.append(f"exists (select 1 from task_assignees filtered_assignees where filtered_assignees.task_id = tasks.id and filtered_assignees.user_id in ({placeholders}))")
         params.extend(assignees)
     if category:
-        where.append("tasks.category_id = ?")
+        where.append(
+            """
+            (
+                tasks.category_id = ?
+                or exists (
+                    select 1
+                    from task_categories filtered_categories
+                    where filtered_categories.task_id = tasks.id
+                      and filtered_categories.category_id = ?
+                )
+            )
+            """
+        )
+        params.append(int(category))
         params.append(int(category))
     if priority:
         where.append("tasks.priority = ?")
@@ -597,6 +648,37 @@ def set_task_assignees(con, task_id, assignee_ids):
             "insert into task_assignees (task_id, user_id) values (?, ?)",
             (task_id, assignee_id),
         )
+
+
+def set_task_categories(con, task_id, category_ids):
+    con.execute("delete from task_categories where task_id = ?", (task_id,))
+    for category_id in dict.fromkeys(int(item) for item in category_ids):
+        con.execute(
+            "insert into task_categories (task_id, category_id) values (?, ?)",
+            (task_id, category_id),
+        )
+
+
+def resolve_categories(con, body):
+    raw_ids = body.get("category_ids")
+    if raw_ids is None:
+        legacy = clean_text(body.get("category_id"))
+        raw_ids = [legacy] if legacy else []
+    category_ids = []
+    for raw_id in raw_ids:
+        value = clean_text(raw_id)
+        if value.isdigit():
+            category_ids.append(int(value))
+    category_ids = list(dict.fromkeys(category_ids))
+    if not category_ids:
+        return []
+    placeholders = ",".join("?" for _ in category_ids)
+    rows = con.execute(
+        f"select id from categories where id in ({placeholders})",
+        category_ids,
+    ).fetchall()
+    found = {int(row["id"]) for row in rows}
+    return [category_id for category_id in category_ids if category_id in found]
 
 
 def resolve_assignees(con, body, current_user, task_id=0):
@@ -764,6 +846,26 @@ def ensure_tasks_status_flexible(con):
         con.execute("drop table task_assignees_backup")
 
 
+def ensure_task_categories(con):
+    con.execute(
+        """
+        create table if not exists task_categories (
+            task_id integer not null references tasks(id) on delete cascade,
+            category_id integer not null references categories(id),
+            primary key (task_id, category_id)
+        )
+        """
+    )
+    con.execute(
+        """
+        insert or ignore into task_categories (task_id, category_id)
+        select id, category_id
+        from tasks
+        where category_id is not null
+        """
+    )
+
+
 def create_due_recurring_tasks(con):
     today = date.today()
     timestamp = now_iso()
@@ -826,6 +928,7 @@ def create_due_recurring_tasks(con):
                     ),
                 ).lastrowid
                 set_task_assignees(con, child_id, task_assignee_ids(task))
+                set_task_categories(con, child_id, task_category_ids(task))
             run_date = next_business_date(add_recurrence_interval(run_date, interval))
         con.execute(
             "update tasks set recurrence_next_date = ?, updated_at = ? where id = ?",
@@ -898,6 +1001,7 @@ def ensure_seed_data(con):
             ),
         ).lastrowid
         set_task_assignees(con, task_id, assignee_ids)
+        set_task_categories(con, task_id, [category_id])
 
 
 def init_db():
@@ -937,6 +1041,7 @@ def init_db():
         con.execute(tasks_table_sql())
         ensure_task_columns(con)
         ensure_tasks_status_flexible(con)
+        ensure_task_categories(con)
         con.execute(
             """
             create unique index if not exists idx_tasks_recurrence_instance
@@ -1047,7 +1152,7 @@ class Handler(BaseHTTPRequestHandler):
                         item["title"],
                         item["assignee_name"],
                         item["assignee_team"],
-                        item.get("category_name") or "",
+                        ", ".join(category.get("name", "") for category in item.get("categories", [])) or item.get("category_name") or "",
                         item.get("status_label") or item["status"],
                         item["priority"],
                         item.get("due_date") or "",
@@ -1110,6 +1215,8 @@ class Handler(BaseHTTPRequestHandler):
                         if status not in status_keys(con):
                             return send_json(self, {"error": "Estado inválido"}, 400)
                         attachment_path, attachment_name, attachment_type = save_upload(body.get("attachment_file"))
+                        category_ids = resolve_categories(con, body)
+                        primary_category_id = category_ids[0] if category_ids else None
                         if task_id:
                             current = get_task(con, task_id)
                             if not current:
@@ -1137,7 +1244,7 @@ class Handler(BaseHTTPRequestHandler):
                                     title,
                                     clean_text(body.get("description")),
                                     assigned_user_ids[0],
-                                    int(body["category_id"]) if clean_text(body.get("category_id")) else None,
+                                    primary_category_id,
                                     status,
                                     priority,
                                     clean_text(body.get("due_date")),
@@ -1155,6 +1262,7 @@ class Handler(BaseHTTPRequestHandler):
                                 ),
                             )
                             set_task_assignees(con, task_id, assigned_user_ids)
+                            set_task_categories(con, task_id, category_ids)
                         else:
                             assigned_user_ids = resolve_assignees(con, body, user)
                             task_id = con.execute(
@@ -1170,7 +1278,7 @@ class Handler(BaseHTTPRequestHandler):
                                     title,
                                     clean_text(body.get("description")),
                                     assigned_user_ids[0],
-                                    int(body["category_id"]) if clean_text(body.get("category_id")) else None,
+                                    primary_category_id,
                                     status,
                                     priority,
                                     clean_text(body.get("due_date")),
@@ -1189,6 +1297,7 @@ class Handler(BaseHTTPRequestHandler):
                                 ),
                             ).lastrowid
                             set_task_assignees(con, task_id, assigned_user_ids)
+                            set_task_categories(con, task_id, category_ids)
                         row = get_task(con, task_id)
                 return send_json(self, {"task": public_task(row)}, 201 if not body.get("id") else 200)
 
@@ -1237,6 +1346,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not can_edit_task(user, row_to_dict(current)):
                         return send_json(self, {"error": "No autorizado"}, 403)
                     con.execute("delete from task_assignees where task_id = ?", (task_id,))
+                    con.execute("delete from task_categories where task_id = ?", (task_id,))
                     con.execute("delete from tasks where id = ?", (task_id,))
                 return send_json(self, {"ok": True})
 
@@ -1267,7 +1377,15 @@ class Handler(BaseHTTPRequestHandler):
                     return send_json(self, {"error": "Solo admin puede gestionar categorías"}, 403)
                 category_id = int(body.get("id") or 0)
                 with db() as con:
-                    used = con.execute("select count(*) as count from tasks where category_id = ?", (category_id,)).fetchone()["count"]
+                    used = con.execute(
+                        """
+                        select count(distinct tasks.id) as count
+                        from tasks
+                        left join task_categories on task_categories.task_id = tasks.id
+                        where tasks.category_id = ? or task_categories.category_id = ?
+                        """,
+                        (category_id, category_id),
+                    ).fetchone()["count"]
                     if used:
                         return send_json(self, {"error": "No se puede borrar una categoría con tareas asociadas"}, 400)
                     con.execute("delete from categories where id = ?", (category_id,))

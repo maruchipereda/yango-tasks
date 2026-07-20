@@ -650,6 +650,18 @@ body.sidebar-collapsed .sidebar-logout {
   font-weight: 850;
 }
 
+.task-category {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-category .category-dot {
+  width: 8px;
+  height: 8px;
+  flex-basis: 8px;
+}
+
 .priority-alta {
   border-left: 4px solid var(--red);
 }
