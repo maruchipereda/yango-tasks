@@ -1616,6 +1616,21 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 return send_json(self, list_monthly_goals_for(user, {"user_id": [str(user_id)], "month": [month]}))
 
+            if parsed.path == "/api/monthly-goals/delete":
+                if user["role"] != "admin":
+                    return send_json(self, {"error": "Solo admin puede borrar objetivos"}, 403)
+                month = normalize_month(body.get("month"))
+                user_id = int(body.get("user_id") or 0)
+                with db() as con:
+                    target_user = visible_goal_user(con, user, user_id)
+                    if not target_user:
+                        return send_json(self, {"error": "Usuario no disponible"}, 404)
+                    con.execute(
+                        "delete from monthly_goals where user_id = ? and month = ?",
+                        (user_id, month),
+                    )
+                return send_json(self, list_monthly_goals_for(user, {"user_id": [str(user_id)]}))
+
             if parsed.path == "/api/monthly-goals/facts":
                 requested_month = clean_text(body.get("month"))
                 month = normalize_month(requested_month) if requested_month else ""

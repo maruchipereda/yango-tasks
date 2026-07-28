@@ -898,15 +898,22 @@ function syncGoalRowType(row) {
   updateGoalsSummary();
 }
 
+function updateDeleteGoalsButton(hasGoals) {
+  $("#deleteGoalsBtn").classList.toggle("hidden", !(state.user?.role === "admin" && hasGoals));
+}
+
 async function setGoalsModalMonth(month) {
   const safeMonth = month || currentMonth();
   $("#goalsModalMonth").value = safeMonth;
   try {
     const payload = await loadMonthlyGoalsForMonth(safeMonth);
-    $("#goalsModalTitle").textContent = payload.goals?.length ? "Editar objetivos" : "Crear nuevos objetivos";
+    const hasGoals = Boolean(payload.goals?.length);
+    $("#goalsModalTitle").textContent = hasGoals ? "Editar objetivos" : "Crear nuevos objetivos";
+    updateDeleteGoalsButton(hasGoals);
     renderGoalEditor(fourGoalRows(payload.goals || []));
   } catch (error) {
     toast(error.message);
+    updateDeleteGoalsButton(false);
     renderGoalEditor(fourGoalRows([]));
   }
 }
@@ -917,6 +924,7 @@ function openGoalsModal(month = currentMonth(), goals = null) {
   $("#goalsModalTitle").textContent = goals?.length ? "Editar objetivos" : "Crear nuevos objetivos";
   $("#goalsModalSubtitle").textContent = user.name || "Persona";
   $("#goalsModalMonth").value = month || currentMonth();
+  updateDeleteGoalsButton(Boolean(goals?.length));
   renderGoalEditor(fourGoalRows(goals || []));
   $("#goalsModal").classList.remove("hidden");
   if (!goals) setGoalsModalMonth($("#goalsModalMonth").value);
@@ -1385,6 +1393,24 @@ $("#goalsForm").addEventListener("submit", async (event) => {
     closeGoalsModal();
     await loadMonthlyGoals();
     toast("Monthly goals guardados");
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+$("#deleteGoalsBtn").addEventListener("click", async () => {
+  if (!window.confirm("¿Borrar los objetivos de este mes para esta persona?")) return;
+  try {
+    await api("/api/monthly-goals/delete", {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: $("#goalsUser").value,
+        month: $("#goalsModalMonth").value,
+      }),
+    });
+    closeGoalsModal();
+    await loadMonthlyGoals();
+    toast("Objetivos borrados");
   } catch (error) {
     toast(error.message);
   }
