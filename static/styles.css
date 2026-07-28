@@ -451,6 +451,7 @@ body.sidebar-collapsed .sidebar-logout {
 .board-column,
 .person-panel,
 .management-card,
+.goals-panel,
 .modal-panel {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1002,6 +1003,103 @@ body.sidebar-collapsed .sidebar-logout {
   color: var(--red);
 }
 
+.goals-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 180px minmax(150px, auto);
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.goals-total {
+  display: grid;
+  min-height: 64px;
+  align-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #fff;
+}
+
+.goals-total span {
+  color: var(--red);
+  font-size: 28px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.goals-total small,
+.goals-notice {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.goals-notice {
+  margin-bottom: 10px;
+}
+
+.goals-panel {
+  overflow-x: auto;
+}
+
+.goals-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+}
+
+.goals-table th,
+.goals-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.goals-table th {
+  background: #fbfbf7;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.goals-table td:first-child,
+.goals-table th:first-child {
+  width: 42px;
+  text-align: center;
+}
+
+.goals-table textarea,
+.goals-table input,
+.goals-table select {
+  min-height: 34px;
+  padding: 7px 8px;
+  font-size: 12px;
+}
+
+.goals-table textarea {
+  min-width: 260px;
+  resize: vertical;
+}
+
+.goals-table [data-goal-weight],
+.goals-table [data-goal-target],
+.goals-table [data-goal-fact] {
+  min-width: 96px;
+}
+
+.goals-table [data-goal-completion],
+.goals-table [data-goal-weighted] {
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.goals-actions {
+  justify-content: flex-end;
+}
+
 .management-card {
   display: grid;
   gap: 14px;
@@ -1238,7 +1336,8 @@ body.sidebar-collapsed .sidebar-logout {
 
   .metrics,
   .filters,
-  .board {
+  .board,
+  .goals-toolbar {
     grid-template-columns: 1fr;
   }
 

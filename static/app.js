@@ -19,6 +19,7 @@ const state = {
   statuses: [],
   tasks: [],
   userWorkload: { users: [], statuses: [] },
+  monthlyGoals: { users: [], goals: [], month: "", selected_user_id: null, can_manage: false, total_completion: 0 },
   activeView: "mine",
   dueWindow: "",
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "1",
@@ -73,6 +74,15 @@ function addRecurrenceInterval(date, interval) {
 
 function defaultRecurrenceNext(interval) {
   return isoDate(nextBusinessDate(addRecurrenceInterval(new Date(), interval)));
+}
+
+function currentMonth() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function isGoalManager() {
+  return ["admin", "manager"].includes(state.user?.role);
 }
 
 function isSoon(value) {
@@ -297,6 +307,23 @@ async function loadUserWorkload() {
   renderUserWorkload();
 }
 
+function blankGoal(position) {
+  return { id: "", position, objective: "", success_type: "numeric", target_value: "", weight: 25, fact_value: "", completion: 0, weighted_completion: 0 };
+}
+
+function fourGoalRows(goals = []) {
+  return Array.from({ length: 4 }, (_, index) => goals[index] || blankGoal(index + 1));
+}
+
+async function loadMonthlyGoals() {
+  const month = $("#goalsMonth").value || currentMonth();
+  const selectedUser = $("#goalsUser").value || state.user?.id;
+  const params = new URLSearchParams({ month, user_id: selectedUser });
+  const payload = await api(`/api/monthly-goals?${params.toString()}`);
+  state.monthlyGoals = payload;
+  renderMonthlyGoals();
+}
+
 async function bootstrap() {
   const payload = await api("/api/bootstrap");
   state.user = payload.user;
@@ -319,6 +346,7 @@ function hydrateControls() {
   renderFilterMenu("taskAssignee", "assignee");
   $("#taskCategory").dataset.values = "";
   renderFilterMenu("taskCategory", "category");
+  $("#goalsMonth").value = $("#goalsMonth").value || currentMonth();
 }
 
 function applyPermissions() {
@@ -331,18 +359,22 @@ function applyPermissions() {
 }
 
 function setView(view) {
-  if (state.user?.role === "colaborador" && view !== "mine") view = "mine";
+  if (state.user?.role === "colaborador" && !["mine", "goals"].includes(view)) view = "mine";
   if (state.user?.role !== "admin" && (view === "categories" || view === "users")) view = "mine";
   state.activeView = view;
   document.querySelectorAll(".view").forEach((node) => node.classList.toggle("active", node.id === view));
   document.querySelectorAll(".nav-btn").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
-  const titles = { mine: "Mi panel", team: "Equipo", categories: "Categorías", users: "Usuarios" };
+  const titles = { mine: "Mi panel", team: "Equipo", goals: "Monthly Goals", categories: "Categorías", users: "Usuarios" };
   $("#viewTitle").textContent = titles[view];
   renderDueWindowControl();
   if (view === "categories") renderCategories();
   if (view === "users") {
     renderUsers();
     loadUserWorkload().catch((error) => toast(error.message));
+  }
+  if (view === "goals") {
+    renderMonthlyGoals();
+    loadMonthlyGoals().catch((error) => toast(error.message));
   }
   if (view === "mine" || view === "team") loadTasks().catch((error) => toast(error.message));
 }
@@ -608,6 +640,132 @@ function renderUserWorkload() {
       </tbody>
     </table>
   `;
+}
+
+function goalCompletion(goal) {
+  const weight = Number(goal.weight || 0);
+  let completion = 0;
+  if (goal.success_type === "binary") {
+    completion = String(goal.fact_value || "").toLowerCase().startsWith("s") ? 100 : 0;
+  } else {
+    const target = Number(goal.target_value || 0);
+    const fact = Number(goal.fact_value || 0);
+    completion = target > 0 ? Math.max(0, Math.min((fact / target) * 100, 100)) : 0;
+  }
+  return { completion, weighted: completion * weight / 100 };
+}
+
+function renderGoalUserOptions(users = []) {
+  const current = String(state.monthlyGoals.selected_user_id || state.user?.id || "");
+  $("#goalsUser").innerHTML = users.map((user) => `<option value="${user.id}" ${String(user.id) === current ? "selected" : ""}>${escapeHtml(user.name)} · ${escapeHtml(user.team || "")}</option>`).join("");
+  $("#goalsUser").disabled = !isGoalManager();
+}
+
+function renderMonthlyGoals() {
+  const data = state.monthlyGoals || {};
+  const users = data.users?.length ? data.users : [state.user].filter(Boolean);
+  if (!$("#goalsMonth").value) $("#goalsMonth").value = data.month || currentMonth();
+  renderGoalUserOptions(users);
+  const canManage = Boolean(data.can_manage);
+  const rows = fourGoalRows(data.goals || []);
+  $("#saveGoalsBtn").classList.toggle("hidden", !canManage);
+  $("#goalsNotice").textContent = canManage
+    ? "Crea 4 goals. Los pesos deben sumar 100% para calcular el bono."
+    : "Actualiza la columna Fact para reportar tus resultados reales.";
+  $("#goalsTable").innerHTML = `
+    <table class="goals-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Objetivo</th>
+          <th>Criterio</th>
+          <th>Meta</th>
+          <th>Peso</th>
+          <th>Fact</th>
+          <th>%</th>
+          <th>Aporte</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((goal, index) => {
+          const calc = goalCompletion(goal);
+          const disabled = canManage ? "" : "disabled";
+          const targetDisabled = goal.success_type === "binary" || !canManage ? "disabled" : "";
+          return `
+            <tr data-goal-row>
+              <td>${index + 1}<input type="hidden" data-goal-id value="${escapeHtml(goal.id || "")}" /></td>
+              <td><textarea data-goal-objective ${disabled} rows="2" placeholder="Descripción del objetivo">${escapeHtml(goal.objective || "")}</textarea></td>
+              <td>
+                <select data-goal-type ${disabled}>
+                  <option value="numeric" ${goal.success_type !== "binary" ? "selected" : ""}>Numérico</option>
+                  <option value="binary" ${goal.success_type === "binary" ? "selected" : ""}>Sí / No</option>
+                </select>
+              </td>
+              <td><input data-goal-target type="number" min="0" step="0.01" value="${goal.target_value ?? ""}" ${targetDisabled} placeholder="${goal.success_type === "binary" ? "Sí" : "Meta"}" /></td>
+              <td><input data-goal-weight type="number" min="0" max="100" step="0.01" value="${goal.weight || ""}" ${disabled} /></td>
+              <td>
+                ${goal.success_type === "binary" ? `
+                  <select data-goal-fact>
+                    <option value="" ${!goal.fact_value ? "selected" : ""}>Pendiente</option>
+                    <option value="Sí" ${goal.fact_value === "Sí" ? "selected" : ""}>Sí</option>
+                    <option value="No" ${goal.fact_value === "No" ? "selected" : ""}>No</option>
+                  </select>
+                ` : `<input data-goal-fact type="number" min="0" step="0.01" value="${escapeHtml(goal.fact_value || "")}" placeholder="Real" />`}
+              </td>
+              <td data-goal-completion>${calc.completion.toFixed(1)}%</td>
+              <td data-goal-weighted>${calc.weighted.toFixed(1)}%</td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+  updateGoalsSummary();
+}
+
+function collectGoalRows() {
+  return [...document.querySelectorAll("[data-goal-row]")].map((row, index) => ({
+    id: row.querySelector("[data-goal-id]").value,
+    position: index + 1,
+    objective: row.querySelector("[data-goal-objective]").value.trim(),
+    success_type: row.querySelector("[data-goal-type]").value,
+    target_value: row.querySelector("[data-goal-target]").value,
+    weight: row.querySelector("[data-goal-weight]").value,
+    fact_value: row.querySelector("[data-goal-fact]").value,
+  }));
+}
+
+function updateGoalsSummary() {
+  let total = 0;
+  collectGoalRows().forEach((goal, index) => {
+    const calc = goalCompletion(goal);
+    total += calc.weighted;
+    const row = document.querySelectorAll("[data-goal-row]")[index];
+    row.querySelector("[data-goal-completion]").textContent = `${calc.completion.toFixed(1)}%`;
+    row.querySelector("[data-goal-weighted]").textContent = `${calc.weighted.toFixed(1)}%`;
+  });
+  $("#goalsTotal").textContent = `${Math.min(total, 100).toFixed(1)}%`;
+}
+
+function syncGoalRowType(row) {
+  const type = row.querySelector("[data-goal-type]").value;
+  const target = row.querySelector("[data-goal-target]");
+  const factCell = row.querySelector("[data-goal-fact]").closest("td");
+  target.disabled = type === "binary" || !state.monthlyGoals.can_manage;
+  target.placeholder = type === "binary" ? "Sí" : "Meta";
+  if (type === "binary") {
+    target.value = "";
+    factCell.innerHTML = `
+      <select data-goal-fact>
+        <option value="">Pendiente</option>
+        <option value="Sí">Sí</option>
+        <option value="No">No</option>
+      </select>
+    `;
+  } else {
+    factCell.innerHTML = `<input data-goal-fact type="number" min="0" step="0.01" placeholder="Real" />`;
+  }
+  updateGoalsSummary();
 }
 
 function render() {
@@ -1036,11 +1194,57 @@ $("#userForm").addEventListener("submit", async (event) => {
   }
 });
 
+$("#goalsUser").addEventListener("change", () => loadMonthlyGoals().catch((error) => toast(error.message)));
+$("#goalsMonth").addEventListener("change", () => loadMonthlyGoals().catch((error) => toast(error.message)));
+
+$("#goalsTable").addEventListener("input", updateGoalsSummary);
+$("#goalsTable").addEventListener("change", (event) => {
+  const type = event.target.closest("[data-goal-type]");
+  if (type) syncGoalRowType(type.closest("[data-goal-row]"));
+  updateGoalsSummary();
+});
+
+$("#saveGoalsBtn").addEventListener("click", async () => {
+  try {
+    const payload = await api("/api/monthly-goals/save", {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: $("#goalsUser").value,
+        month: $("#goalsMonth").value,
+        goals: collectGoalRows(),
+      }),
+    });
+    state.monthlyGoals = payload;
+    renderMonthlyGoals();
+    toast("Monthly goals guardados");
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+$("#saveFactsBtn").addEventListener("click", async () => {
+  try {
+    const payload = await api("/api/monthly-goals/facts", {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: $("#goalsUser").value,
+        month: $("#goalsMonth").value,
+        facts: collectGoalRows().filter((goal) => goal.id).map((goal) => ({ id: goal.id, fact_value: goal.fact_value })),
+      }),
+    });
+    state.monthlyGoals = payload;
+    renderMonthlyGoals();
+    toast("Facts guardados");
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
 ["mineCategoryFilter", "minePriorityFilter", "teamCategoryFilter"].forEach((id) => {
   $(`#${id}`).addEventListener("change", () => loadTasks().catch((error) => toast(error.message)));
 });
 
-["mineSearch"].forEach((id) => {
+["mineSearch", "teamSearch"].forEach((id) => {
   $(`#${id}`).addEventListener("input", () => loadTasks().catch((error) => toast(error.message)));
 });
 

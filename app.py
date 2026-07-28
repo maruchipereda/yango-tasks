@@ -121,6 +121,22 @@ def due_window_bounds(window):
     return None, None
 
 
+def normalize_month(value):
+    value = clean_text(value)[:7]
+    if not value:
+        today = date.today()
+        return f"{today.year:04d}-{today.month:02d}"
+    try:
+        year_text, month_text = value.split("-", 1)
+        year = int(year_text)
+        month = int(month_text)
+    except ValueError as exc:
+        raise ValueError("Mes inválido") from exc
+    if year < 2020 or year > 2100 or month < 1 or month > 12:
+        raise ValueError("Mes inválido")
+    return f"{year:04d}-{month:02d}"
+
+
 def parse_json_body(handler):
     length = int(handler.headers.get("Content-Length", "0") or 0)
     if not length:
@@ -476,6 +492,87 @@ def user_workload_for(user):
         user_data["total_open"] = sum(int(value or 0) for value in counts.values())
         workload_users.append(user_data)
     return {"users": workload_users, "statuses": statuses}
+
+
+def goal_completion(goal):
+    success_type = goal.get("success_type")
+    fact = clean_text(goal.get("fact_value"))
+    if success_type == "binary":
+        return 100.0 if fact.lower() in {"si", "sí", "yes", "true", "1"} else 0.0
+    try:
+        target = float(goal.get("target_value") or 0)
+        actual = float(fact) if fact else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+    if target <= 0:
+        return 0.0
+    return max(0.0, min((actual / target) * 100.0, 100.0))
+
+
+def public_monthly_goal(row):
+    data = row_to_dict(row)
+    if not data:
+        return None
+    data["weight"] = float(data.get("weight") or 0)
+    data["target_value"] = float(data["target_value"]) if data.get("target_value") is not None else None
+    data["completion"] = round(goal_completion(data), 1)
+    data["weighted_completion"] = round(data["completion"] * data["weight"] / 100.0, 1)
+    return data
+
+
+def visible_goal_user(con, current_user, user_id):
+    row = con.execute("select id, name, email, role, team, active from users where id = ? and active = 1", (user_id,)).fetchone()
+    if not row:
+        return None
+    target = row_to_dict(row)
+    if current_user["role"] == "admin":
+        return target
+    if current_user["role"] == "manager" and target["team"] == current_user["team"]:
+        return target
+    if int(target["id"]) == int(current_user["id"]):
+        return target
+    return None
+
+
+def can_manage_monthly_goals(current_user, target_user):
+    if current_user["role"] == "admin":
+        return True
+    return current_user["role"] == "manager" and target_user["team"] == current_user["team"]
+
+
+def list_monthly_goals_for(user, query):
+    month = normalize_month(query.get("month", [""])[0])
+    requested_user = clean_text(query.get("user_id", [""])[0])
+    visible_users = list_users_for(user)
+    fallback_user_id = int(user["id"]) if user["role"] == "colaborador" else (visible_users[0]["id"] if visible_users else user["id"])
+    target_user_id = int(requested_user) if requested_user.isdigit() else fallback_user_id
+    with db() as con:
+        target_user = visible_goal_user(con, user, target_user_id)
+        if not target_user:
+            target_user = visible_goal_user(con, user, fallback_user_id)
+        if not target_user:
+            raise ValueError("Usuario no disponible")
+        rows = con.execute(
+            """
+            select monthly_goals.*, users.name as user_name, users.team as user_team
+            from monthly_goals
+            join users on users.id = monthly_goals.user_id
+            where monthly_goals.user_id = ? and monthly_goals.month = ?
+            order by monthly_goals.position
+            """,
+            (target_user["id"], month),
+        ).fetchall()
+    goals = [public_monthly_goal(row) for row in rows]
+    total = round(sum(goal["weighted_completion"] for goal in goals), 1)
+    return {
+        "month": month,
+        "selected_user_id": target_user["id"],
+        "selected_user": target_user,
+        "users": visible_users,
+        "goals": goals,
+        "total_completion": total,
+        "can_manage": can_manage_monthly_goals(user, target_user),
+    }
 
 
 def list_categories():
@@ -866,6 +963,93 @@ def ensure_task_categories(con):
     )
 
 
+def create_monthly_goals_table(con):
+    con.execute(
+        """
+        create table if not exists monthly_goals (
+            id integer primary key autoincrement,
+            user_id integer not null references users(id),
+            month text not null,
+            position integer not null,
+            objective text not null,
+            success_type text not null check (success_type in ('numeric', 'binary')),
+            target_value real,
+            weight real not null,
+            fact_value text not null default '',
+            created_by integer not null references users(id),
+            created_at text not null,
+            updated_at text not null
+        )
+        """
+    )
+    con.execute(
+        """
+        create unique index if not exists idx_monthly_goals_user_month_position
+        on monthly_goals(user_id, month, position)
+        """
+    )
+
+
+def validate_monthly_goal_rows(rows):
+    if not isinstance(rows, list) or len(rows) != 4:
+        raise ValueError("Debes guardar exactamente 4 goals")
+    normalized = []
+    total_weight = 0.0
+    for index, row in enumerate(rows, start=1):
+        objective = clean_text(row.get("objective"))
+        success_type = clean_text(row.get("success_type")) or "numeric"
+        if not objective:
+            raise ValueError("Cada goal necesita descripción del objetivo")
+        if success_type not in ("numeric", "binary"):
+            raise ValueError("El criterio debe ser numérico o Sí/No")
+        try:
+            weight = float(row.get("weight") or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("El peso debe ser numérico") from exc
+        if weight <= 0:
+            raise ValueError("Cada goal necesita un peso mayor a 0")
+        target_value = None
+        if success_type == "numeric":
+            try:
+                target_value = float(row.get("target_value") or 0)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("La meta numérica debe ser válida") from exc
+            if target_value <= 0:
+                raise ValueError("La meta numérica debe ser mayor a 0")
+        total_weight += weight
+        normalized.append({
+            "id": int(row.get("id") or 0),
+            "position": index,
+            "objective": objective[:500],
+            "success_type": success_type,
+            "target_value": target_value,
+            "weight": weight,
+        })
+    if abs(total_weight - 100.0) > 0.01:
+        raise ValueError("Los pesos de los 4 goals deben sumar 100%")
+    return normalized
+
+
+def normalize_goal_fact(goal, value):
+    value = clean_text(value)
+    if not value:
+        return ""
+    if goal["success_type"] == "binary":
+        lowered = value.lower()
+        if lowered in {"si", "sí", "yes", "true", "1"}:
+            return "Sí"
+        if lowered in {"no", "false", "0"}:
+            return "No"
+        raise ValueError("El fact binario debe ser Sí o No")
+    try:
+        number = float(value)
+    except ValueError as exc:
+        raise ValueError("El fact numérico debe ser válido") from exc
+    if number < 0:
+        raise ValueError("El fact numérico no puede ser negativo")
+    return str(number).rstrip("0").rstrip(".") if "." in str(number) else str(number)
+
+
 def create_due_recurring_tasks(con):
     today = date.today()
     timestamp = now_iso()
@@ -1042,6 +1226,7 @@ def init_db():
         ensure_task_columns(con)
         ensure_tasks_status_flexible(con)
         ensure_task_categories(con)
+        create_monthly_goals_table(con)
         con.execute(
             """
             create unique index if not exists idx_tasks_recurrence_instance
@@ -1138,6 +1323,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             tasks = list_tasks_for(user, parse_qs(parsed.query))
             return send_json(self, {"tasks": tasks})
+        if parsed.path == "/api/monthly-goals":
+            user = require_user(self)
+            if user is None:
+                return
+            return send_json(self, list_monthly_goals_for(user, parse_qs(parsed.query)))
         if parsed.path == "/api/export":
             user = require_user(self)
             if user is None:
@@ -1350,6 +1540,78 @@ class Handler(BaseHTTPRequestHandler):
                     con.execute("delete from tasks where id = ?", (task_id,))
                 return send_json(self, {"ok": True})
 
+            if parsed.path == "/api/monthly-goals/save":
+                month = normalize_month(body.get("month"))
+                user_id = int(body.get("user_id") or 0)
+                goals = validate_monthly_goal_rows(body.get("goals"))
+                timestamp = now_iso()
+                with db() as con:
+                    target_user = visible_goal_user(con, user, user_id)
+                    if not target_user or not can_manage_monthly_goals(user, target_user):
+                        return send_json(self, {"error": "No autorizado para gestionar goals de esta persona"}, 403)
+                    kept_ids = []
+                    for goal in goals:
+                        if goal["id"]:
+                            existing = con.execute(
+                                "select * from monthly_goals where id = ? and user_id = ? and month = ?",
+                                (goal["id"], user_id, month),
+                            ).fetchone()
+                        else:
+                            existing = None
+                        if existing:
+                            con.execute(
+                                """
+                                update monthly_goals
+                                set position = ?, objective = ?, success_type = ?, target_value = ?, weight = ?, updated_at = ?
+                                where id = ?
+                                """,
+                                (goal["position"], goal["objective"], goal["success_type"], goal["target_value"], goal["weight"], timestamp, goal["id"]),
+                            )
+                            kept_ids.append(goal["id"])
+                        else:
+                            new_id = con.execute(
+                                """
+                                insert into monthly_goals (
+                                    user_id, month, position, objective, success_type, target_value,
+                                    weight, fact_value, created_by, created_at, updated_at
+                                ) values (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)
+                                """,
+                                (user_id, month, goal["position"], goal["objective"], goal["success_type"], goal["target_value"], goal["weight"], user["id"], timestamp, timestamp),
+                            ).lastrowid
+                            kept_ids.append(new_id)
+                    placeholders = ",".join("?" for _ in kept_ids)
+                    con.execute(
+                        f"delete from monthly_goals where user_id = ? and month = ? and id not in ({placeholders})",
+                        [user_id, month, *kept_ids],
+                    )
+                return send_json(self, list_monthly_goals_for(user, {"user_id": [str(user_id)], "month": [month]}))
+
+            if parsed.path == "/api/monthly-goals/facts":
+                month = normalize_month(body.get("month"))
+                user_id = int(body.get("user_id") or 0)
+                facts = body.get("facts")
+                if not isinstance(facts, list):
+                    return send_json(self, {"error": "Facts inválidos"}, 400)
+                timestamp = now_iso()
+                with db() as con:
+                    target_user = visible_goal_user(con, user, user_id)
+                    if not target_user:
+                        return send_json(self, {"error": "No autorizado"}, 403)
+                    for item in facts:
+                        goal_id = int(item.get("id") or 0)
+                        goal = con.execute(
+                            "select * from monthly_goals where id = ? and user_id = ? and month = ?",
+                            (goal_id, target_user["id"], month),
+                        ).fetchone()
+                        if not goal:
+                            continue
+                        fact_value = normalize_goal_fact(row_to_dict(goal), item.get("fact_value"))
+                        con.execute(
+                            "update monthly_goals set fact_value = ?, updated_at = ? where id = ?",
+                            (fact_value, timestamp, goal_id),
+                        )
+                return send_json(self, list_monthly_goals_for(user, {"user_id": [str(user_id)], "month": [month]}))
+
             if parsed.path == "/api/categories/save":
                 if not can_manage_admin_data(user):
                     return send_json(self, {"error": "Solo admin puede gestionar categorías"}, 403)
@@ -1505,8 +1767,10 @@ class Handler(BaseHTTPRequestHandler):
                         """,
                         (user_id, user_id),
                     ).fetchone()["count"]
+                    goals_used = con.execute("select count(*) as count from monthly_goals where user_id = ?", (user_id,)).fetchone()["count"]
+                    used += goals_used
                     if used:
-                        return send_json(self, {"error": "No se puede borrar un usuario con tareas asignadas. Desactívalo o reasigna sus tareas."}, 400)
+                        return send_json(self, {"error": "No se puede borrar un usuario con tareas o goals asociados. Desactívalo o reasigna su carga."}, 400)
                     con.execute("delete from users where id = ?", (user_id,))
                 return send_json(self, {"ok": True})
 

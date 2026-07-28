@@ -48,6 +48,14 @@
           <path d="M18.5 5.5l2 2"></path>
           <path d="M20.5 5.5l-2 2"></path>
         </symbol>
+        <symbol id="icon-goals" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="8"></circle>
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 3v3"></path>
+          <path d="M12 18v3"></path>
+          <path d="M3 12h3"></path>
+          <path d="M18 12h3"></path>
+        </symbol>
         <symbol id="icon-logout" viewBox="0 0 24 24">
           <path d="M10 4H5.8A1.8 1.8 0 0 0 4 5.8v12.4A1.8 1.8 0 0 0 5.8 20H10"></path>
           <path d="M14 8l4 4-4 4"></path>
@@ -66,6 +74,7 @@
         <nav>
           <button class="nav-btn active" type="button" data-view="mine" title="Mi panel"><svg class="nav-icon"><use href="#icon-dashboard"></use></svg><span class="nav-label">Mi panel</span></button>
           <button class="nav-btn" type="button" data-view="team" title="Equipo"><svg class="nav-icon"><use href="#icon-team"></use></svg><span class="nav-label">Equipo</span></button>
+          <button class="nav-btn" type="button" data-view="goals" title="Monthly Goals"><svg class="nav-icon"><use href="#icon-goals"></use></svg><span class="nav-label">Monthly Goals</span></button>
           <button class="nav-btn admin-only" type="button" data-view="categories" title="Categorías"><svg class="nav-icon"><use href="#icon-categories"></use></svg><span class="nav-label">Categorías</span></button>
           <button class="nav-btn admin-only" type="button" data-view="users" title="Usuarios"><svg class="nav-icon"><use href="#icon-users"></use></svg><span class="nav-label">Usuarios</span></button>
         </nav>
@@ -121,9 +130,33 @@
             <div id="teamAssigneeFilter" class="filter-menu" data-filter-menu="assignee"></div>
             <div id="teamStatusFilter" class="filter-menu" data-filter-menu="status"></div>
             <select id="teamCategoryFilter" aria-label="Categoría"></select>
+            <input id="teamSearch" placeholder="Buscar" />
             <button id="exportBtn" class="secondary" type="button">CSV</button>
           </div>
           <div id="teamBoard" class="people-grid"></div>
+        </section>
+
+        <section id="goals" class="view">
+          <div class="goals-toolbar">
+            <label>Persona
+              <select id="goalsUser"></select>
+            </label>
+            <label>Mes
+              <input id="goalsMonth" type="month" />
+            </label>
+            <div class="goals-total">
+              <span id="goalsTotal">0%</span>
+              <small>cumplimiento ponderado</small>
+            </div>
+          </div>
+          <div id="goalsNotice" class="goals-notice"></div>
+          <div class="goals-panel">
+            <div id="goalsTable"></div>
+          </div>
+          <div class="actions goals-actions">
+            <button id="saveGoalsBtn" type="button">Guardar goals</button>
+            <button id="saveFactsBtn" class="secondary" type="button">Guardar facts</button>
+          </div>
         </section>
 
         <section id="categories" class="view">
