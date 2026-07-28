@@ -1066,6 +1066,60 @@ body.sidebar-collapsed .sidebar-logout {
   overflow-x: auto;
 }
 
+.goals-record-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+
+.goals-record-head small,
+#goalsModalSubtitle {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.goals-record-head h2 {
+  margin: 3px 0 0;
+  font-family: var(--font-brand);
+  font-size: 30px;
+  line-height: 1;
+}
+
+.goals-record-score {
+  display: grid;
+  min-width: 180px;
+  justify-items: end;
+}
+
+.goals-record-score span {
+  color: var(--red);
+  font-size: 32px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.goals-empty {
+  padding: 26px;
+  text-align: center;
+}
+
+.goals-empty h3 {
+  margin: 0 0 6px;
+  font-family: var(--font-brand);
+  font-size: 24px;
+}
+
+.goals-empty p {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 750;
+}
+
 .goals-table {
   width: 100%;
   min-width: 980px;
@@ -1119,8 +1173,23 @@ body.sidebar-collapsed .sidebar-logout {
   white-space: nowrap;
 }
 
+.goals-record-table strong {
+  display: block;
+  max-width: 520px;
+}
+
 .goals-actions {
   justify-content: flex-end;
+}
+
+.goals-modal-panel {
+  display: grid;
+  width: min(1080px, 100%);
+  gap: 14px;
+}
+
+#goalsModalSubtitle {
+  margin: 4px 0 0;
 }
 
 .management-card {
@@ -1362,6 +1431,15 @@ body.sidebar-collapsed .sidebar-logout {
   .board,
   .goals-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .goals-record-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .goals-record-score {
+    justify-items: start;
   }
 
   .form-grid {

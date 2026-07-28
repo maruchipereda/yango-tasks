@@ -81,6 +81,14 @@ function currentMonth() {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function monthLabel(value) {
+  if (!value) return "";
+  const [year, month] = value.split("-").map(Number);
+  if (!year || !month) return value;
+  const label = new Date(year, month - 1, 1).toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 function isGoalManager() {
   return ["admin", "manager"].includes(state.user?.role);
 }
@@ -366,6 +374,7 @@ function setView(view) {
   document.querySelectorAll(".nav-btn").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   const titles = { mine: "Mi panel", team: "Equipo", goals: "Monthly Goals", categories: "Categorías", users: "Usuarios" };
   $("#viewTitle").textContent = titles[view];
+  $("#newTaskBtn").classList.toggle("hidden", !["mine", "team"].includes(view));
   renderDueWindowControl();
   if (view === "categories") renderCategories();
   if (view === "users") {
@@ -661,19 +670,45 @@ function renderGoalUserOptions(users = []) {
   $("#goalsUser").disabled = !isGoalManager();
 }
 
-function renderMonthlyGoals() {
-  const data = state.monthlyGoals || {};
-  const users = data.users?.length ? data.users : [state.user].filter(Boolean);
-  if (!$("#goalsMonth").value) $("#goalsMonth").value = data.month || currentMonth();
-  renderGoalUserOptions(users);
-  const canManage = Boolean(data.can_manage);
-  const rows = fourGoalRows(data.goals || []);
-  $("#saveGoalsBtn").classList.toggle("hidden", !canManage);
-  $("#goalsNotice").textContent = canManage
-    ? "Crea 4 goals. Los pesos deben sumar 100% para calcular el bono."
-    : "Actualiza la columna Fact para reportar tus resultados reales.";
-  $("#goalsTable").innerHTML = `
-    <table class="goals-table">
+function selectedGoalUser(users = []) {
+  return state.monthlyGoals.selected_user || users.find((user) => Number(user.id) === Number(state.monthlyGoals.selected_user_id)) || state.user || {};
+}
+
+function goalFactControl(goal) {
+  if (goal.success_type === "binary") {
+    return `
+      <select data-goal-fact>
+        <option value="" ${!goal.fact_value ? "selected" : ""}>Pendiente</option>
+        <option value="Sí" ${goal.fact_value === "Sí" ? "selected" : ""}>Sí</option>
+        <option value="No" ${goal.fact_value === "No" ? "selected" : ""}>No</option>
+      </select>
+    `;
+  }
+  return `<input data-goal-fact type="number" min="0" step="0.01" value="${escapeHtml(goal.fact_value || "")}" placeholder="Real" />`;
+}
+
+function renderGoalRecord(rows, user, month) {
+  if (!rows.length) {
+    return `
+      <div class="goals-empty">
+        <h3>Objetivos de ${escapeHtml(monthLabel(month))}</h3>
+        <p>No hay objetivos cargados para esta persona y mes.</p>
+      </div>
+    `;
+  }
+  const total = rows.reduce((sum, goal) => sum + goalCompletion(goal).weighted, 0);
+  return `
+    <div class="goals-record-head">
+      <div>
+        <small>Objetivos de ${escapeHtml(monthLabel(month))}</small>
+        <h2>${escapeHtml(user.name || "Persona")}</h2>
+      </div>
+      <div class="goals-record-score">
+        <span data-goals-record-total>${Math.min(total, 100).toFixed(1)}%</span>
+        <small>cumplimiento ponderado</small>
+      </div>
+    </div>
+    <table class="goals-table goals-record-table">
       <thead>
         <tr>
           <th>#</th>
@@ -689,28 +724,18 @@ function renderMonthlyGoals() {
       <tbody>
         ${rows.map((goal, index) => {
           const calc = goalCompletion(goal);
-          const disabled = canManage ? "" : "disabled";
-          const targetDisabled = goal.success_type === "binary" || !canManage ? "disabled" : "";
+          const criterion = goal.success_type === "binary" ? "Sí / No" : "Numérico";
+          const target = goal.success_type === "binary" ? "Sí" : goal.target_value;
           return `
-            <tr data-goal-row>
+            <tr data-goal-fact-row>
               <td>${index + 1}<input type="hidden" data-goal-id value="${escapeHtml(goal.id || "")}" /></td>
-              <td><textarea data-goal-objective ${disabled} rows="2" placeholder="Descripción del objetivo">${escapeHtml(goal.objective || "")}</textarea></td>
+              <td><strong>${escapeHtml(goal.objective || "")}</strong></td>
+              <td>${criterion}</td>
+              <td data-goal-target-value>${escapeHtml(target ?? "")}</td>
+              <td data-goal-weight-value>${Number(goal.weight || 0).toFixed(1)}%</td>
               <td>
-                <select data-goal-type ${disabled}>
-                  <option value="numeric" ${goal.success_type !== "binary" ? "selected" : ""}>Numérico</option>
-                  <option value="binary" ${goal.success_type === "binary" ? "selected" : ""}>Sí / No</option>
-                </select>
-              </td>
-              <td><input data-goal-target type="number" min="0" step="0.01" value="${goal.target_value ?? ""}" ${targetDisabled} placeholder="${goal.success_type === "binary" ? "Sí" : "Meta"}" /></td>
-              <td><input data-goal-weight type="number" min="0" max="100" step="0.01" value="${goal.weight || ""}" ${disabled} /></td>
-              <td>
-                ${goal.success_type === "binary" ? `
-                  <select data-goal-fact>
-                    <option value="" ${!goal.fact_value ? "selected" : ""}>Pendiente</option>
-                    <option value="Sí" ${goal.fact_value === "Sí" ? "selected" : ""}>Sí</option>
-                    <option value="No" ${goal.fact_value === "No" ? "selected" : ""}>No</option>
-                  </select>
-                ` : `<input data-goal-fact type="number" min="0" step="0.01" value="${escapeHtml(goal.fact_value || "")}" placeholder="Real" />`}
+                <input type="hidden" data-goal-type-value value="${escapeHtml(goal.success_type || "numeric")}" />
+                ${goalFactControl(goal)}
               </td>
               <td data-goal-completion>${calc.completion.toFixed(1)}%</td>
               <td data-goal-weighted>${calc.weighted.toFixed(1)}%</td>
@@ -720,29 +745,104 @@ function renderMonthlyGoals() {
       </tbody>
     </table>
   `;
+}
+
+function renderGoalEditor(rows) {
+  $("#goalsEditor").innerHTML = `
+    <table class="goals-table goals-editor-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Objetivo</th>
+          <th>Criterio</th>
+          <th>Meta</th>
+          <th>Peso</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((goal, index) => {
+          const targetDisabled = goal.success_type === "binary" ? "disabled" : "";
+          return `
+            <tr data-goal-row>
+              <td>${index + 1}<input type="hidden" data-goal-id value="${escapeHtml(goal.id || "")}" /></td>
+              <td><textarea data-goal-objective rows="2" placeholder="Descripción del objetivo">${escapeHtml(goal.objective || "")}</textarea></td>
+              <td>
+                <select data-goal-type>
+                  <option value="numeric" ${goal.success_type !== "binary" ? "selected" : ""}>Numérico</option>
+                  <option value="binary" ${goal.success_type === "binary" ? "selected" : ""}>Sí / No</option>
+                </select>
+              </td>
+              <td><input data-goal-target type="number" min="0" step="0.01" value="${goal.target_value ?? ""}" ${targetDisabled} placeholder="${goal.success_type === "binary" ? "Sí" : "Meta"}" /></td>
+              <td><input data-goal-weight type="number" min="0" max="100" step="0.01" value="${goal.weight || ""}" /></td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderMonthlyGoals() {
+  const data = state.monthlyGoals || {};
+  const users = data.users?.length ? data.users : [state.user].filter(Boolean);
+  if (!$("#goalsMonth").value) $("#goalsMonth").value = data.month || currentMonth();
+  renderGoalUserOptions(users);
+  const canManage = Boolean(data.can_manage);
+  const rows = data.goals || [];
+  const user = selectedGoalUser(users);
+  const month = data.month || $("#goalsMonth").value || currentMonth();
+  $("#editGoalsBtn").classList.toggle("hidden", !canManage);
+  $("#editGoalsBtn").textContent = rows.length ? "Editar objetivos" : "+ Crear nuevos objetivos";
+  $("#saveFactsBtn").classList.toggle("hidden", !rows.length);
+  $("#goalsNotice").textContent = rows.length
+    ? "Actualiza Fact para ver el cumplimiento real de este mes."
+    : (canManage ? "Carga 4 objetivos para esta persona y mes." : "Todavía no tienes objetivos cargados para este mes.");
+  $("#goalsRecord").innerHTML = renderGoalRecord(rows, user, month);
+  renderGoalEditor(fourGoalRows(rows));
   updateGoalsSummary();
 }
 
 function collectGoalRows() {
-  return [...document.querySelectorAll("[data-goal-row]")].map((row, index) => ({
+  return [...$("#goalsEditor").querySelectorAll("[data-goal-row]")].map((row, index) => ({
     id: row.querySelector("[data-goal-id]").value,
     position: index + 1,
     objective: row.querySelector("[data-goal-objective]").value.trim(),
     success_type: row.querySelector("[data-goal-type]").value,
     target_value: row.querySelector("[data-goal-target]").value,
     weight: row.querySelector("[data-goal-weight]").value,
+  }));
+}
+
+function collectGoalFacts() {
+  return [...$("#goalsRecord").querySelectorAll("[data-goal-fact-row]")].map((row) => ({
+    id: row.querySelector("[data-goal-id]").value,
+    success_type: row.querySelector("[data-goal-type-value]").value,
+    target_value: row.querySelector("[data-goal-target-value]").textContent.trim(),
+    weight: row.querySelector("[data-goal-weight-value]").textContent.replace("%", "").trim(),
     fact_value: row.querySelector("[data-goal-fact]").value,
   }));
 }
 
 function updateGoalsSummary() {
   let total = 0;
-  collectGoalRows().forEach((goal, index) => {
+  const factRows = [...$("#goalsRecord").querySelectorAll("[data-goal-fact-row]")];
+  if (factRows.length) {
+    collectGoalFacts().forEach((goal, index) => {
+      const calc = goalCompletion(goal);
+      total += calc.weighted;
+      const row = factRows[index];
+      row.querySelector("[data-goal-completion]").textContent = `${calc.completion.toFixed(1)}%`;
+      row.querySelector("[data-goal-weighted]").textContent = `${calc.weighted.toFixed(1)}%`;
+    });
+    const capped = `${Math.min(total, 100).toFixed(1)}%`;
+    $("#goalsTotal").textContent = capped;
+    const recordTotal = $("[data-goals-record-total]");
+    if (recordTotal) recordTotal.textContent = capped;
+    return;
+  }
+  collectGoalRows().forEach((goal) => {
     const calc = goalCompletion(goal);
     total += calc.weighted;
-    const row = document.querySelectorAll("[data-goal-row]")[index];
-    row.querySelector("[data-goal-completion]").textContent = `${calc.completion.toFixed(1)}%`;
-    row.querySelector("[data-goal-weighted]").textContent = `${calc.weighted.toFixed(1)}%`;
   });
   $("#goalsTotal").textContent = `${Math.min(total, 100).toFixed(1)}%`;
 }
@@ -750,22 +850,25 @@ function updateGoalsSummary() {
 function syncGoalRowType(row) {
   const type = row.querySelector("[data-goal-type]").value;
   const target = row.querySelector("[data-goal-target]");
-  const factCell = row.querySelector("[data-goal-fact]").closest("td");
-  target.disabled = type === "binary" || !state.monthlyGoals.can_manage;
+  target.disabled = type === "binary";
   target.placeholder = type === "binary" ? "Sí" : "Meta";
   if (type === "binary") {
     target.value = "";
-    factCell.innerHTML = `
-      <select data-goal-fact>
-        <option value="">Pendiente</option>
-        <option value="Sí">Sí</option>
-        <option value="No">No</option>
-      </select>
-    `;
-  } else {
-    factCell.innerHTML = `<input data-goal-fact type="number" min="0" step="0.01" placeholder="Real" />`;
   }
   updateGoalsSummary();
+}
+
+function openGoalsModal() {
+  const users = state.monthlyGoals.users?.length ? state.monthlyGoals.users : [state.user].filter(Boolean);
+  const user = selectedGoalUser(users);
+  $("#goalsModalTitle").textContent = state.monthlyGoals.goals?.length ? "Editar objetivos" : "Crear nuevos objetivos";
+  $("#goalsModalSubtitle").textContent = `${user.name || "Persona"} · ${monthLabel($("#goalsMonth").value || state.monthlyGoals.month || currentMonth())}`;
+  renderGoalEditor(fourGoalRows(state.monthlyGoals.goals || []));
+  $("#goalsModal").classList.remove("hidden");
+}
+
+function closeGoalsModal() {
+  $("#goalsModal").classList.add("hidden");
 }
 
 function render() {
@@ -969,6 +1072,8 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest("[data-close-status]")) $("#statusModal").classList.add("hidden");
   if (event.target.closest("#newUserBtn")) openUser();
   if (event.target.closest("[data-close-user]")) $("#userModal").classList.add("hidden");
+  if (event.target.closest("#editGoalsBtn")) openGoalsModal();
+  if (event.target.closest("[data-close-goals]")) closeGoalsModal();
 
   const editTask = event.target.closest("[data-edit-task]");
   if (editTask) openTask(state.tasks.find((task) => Number(task.id) === Number(editTask.dataset.editTask)));
@@ -1197,14 +1302,17 @@ $("#userForm").addEventListener("submit", async (event) => {
 $("#goalsUser").addEventListener("change", () => loadMonthlyGoals().catch((error) => toast(error.message)));
 $("#goalsMonth").addEventListener("change", () => loadMonthlyGoals().catch((error) => toast(error.message)));
 
-$("#goalsTable").addEventListener("input", updateGoalsSummary);
-$("#goalsTable").addEventListener("change", (event) => {
+$("#goalsRecord").addEventListener("input", updateGoalsSummary);
+$("#goalsRecord").addEventListener("change", updateGoalsSummary);
+$("#goalsEditor").addEventListener("input", updateGoalsSummary);
+$("#goalsEditor").addEventListener("change", (event) => {
   const type = event.target.closest("[data-goal-type]");
   if (type) syncGoalRowType(type.closest("[data-goal-row]"));
   updateGoalsSummary();
 });
 
-$("#saveGoalsBtn").addEventListener("click", async () => {
+$("#goalsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
   try {
     const payload = await api("/api/monthly-goals/save", {
       method: "POST",
@@ -1215,6 +1323,7 @@ $("#saveGoalsBtn").addEventListener("click", async () => {
       }),
     });
     state.monthlyGoals = payload;
+    closeGoalsModal();
     renderMonthlyGoals();
     toast("Monthly goals guardados");
   } catch (error) {
@@ -1229,7 +1338,7 @@ $("#saveFactsBtn").addEventListener("click", async () => {
       body: JSON.stringify({
         user_id: $("#goalsUser").value,
         month: $("#goalsMonth").value,
-        facts: collectGoalRows().filter((goal) => goal.id).map((goal) => ({ id: goal.id, fact_value: goal.fact_value })),
+        facts: collectGoalFacts().filter((goal) => goal.id).map((goal) => ({ id: goal.id, fact_value: goal.fact_value })),
       }),
     });
     state.monthlyGoals = payload;

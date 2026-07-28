@@ -151,10 +151,10 @@
           </div>
           <div id="goalsNotice" class="goals-notice"></div>
           <div class="goals-panel">
-            <div id="goalsTable"></div>
+            <div id="goalsRecord"></div>
           </div>
           <div class="actions goals-actions">
-            <button id="saveGoalsBtn" type="button">Guardar goals</button>
+            <button id="editGoalsBtn" type="button">+ Crear nuevos objetivos</button>
             <button id="saveFactsBtn" class="secondary" type="button">Guardar facts</button>
           </div>
         </section>
@@ -352,6 +352,24 @@
         <div class="actions">
           <button type="submit">Guardar</button>
           <button class="secondary" type="button" data-close-user>Cancelar</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="goalsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="goalsModalTitle">
+      <div class="modal-backdrop" data-close-goals></div>
+      <form id="goalsForm" class="modal-panel goals-modal-panel">
+        <div class="modal-head">
+          <div>
+            <h3 id="goalsModalTitle">Objetivos mensuales</h3>
+            <p id="goalsModalSubtitle"></p>
+          </div>
+          <button class="icon-button" type="button" data-close-goals aria-label="Cerrar">×</button>
+        </div>
+        <div id="goalsEditor"></div>
+        <div class="actions goals-actions">
+          <button id="saveGoalsBtn" type="submit">Guardar objetivos</button>
+          <button class="secondary" type="button" data-close-goals>Cancelar</button>
         </div>
       </form>
     </div>
