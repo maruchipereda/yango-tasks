@@ -484,6 +484,29 @@ body.sidebar-collapsed .sidebar-logout {
   margin-bottom: 18px;
 }
 
+.team-filters {
+  grid-template-columns:
+    minmax(150px, 0.9fr)
+    minmax(145px, 0.9fr)
+    minmax(150px, 0.95fr)
+    minmax(140px, 0.8fr)
+    78px;
+}
+
+.team-filters input,
+.team-filters select,
+.team-filters .filter-trigger,
+.team-filters button {
+  min-height: 36px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.team-filters button {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
 .filter-menu {
   position: relative;
 }
