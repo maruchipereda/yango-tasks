@@ -744,9 +744,14 @@ function renderGoalMonthSection(monthData, canManage) {
                   <input type="hidden" data-goal-type-value value="${escapeHtml(goal.success_type || "numeric")}" />
                   ${goalFactControl(goal)}
                 </td>
-                <td>
-                  <input data-goal-evidence type="url" value="${escapeHtml(goal.evidence_url || "")}" placeholder="https://" />
-                  ${evidence ? `<div class="goal-evidence-link">${evidence}</div>` : ""}
+                <td class="goal-evidence-cell">
+                  <input data-goal-evidence type="url" value="${escapeHtml(goal.evidence_url || "")}" placeholder="https://" class="${evidence ? "hidden" : ""}" />
+                  ${evidence ? `
+                    <div class="goal-evidence-link">
+                      ${evidence}
+                      <button class="link-button" type="button" data-edit-evidence>Cambiar</button>
+                    </div>
+                  ` : ""}
                 </td>
                 <td data-goal-completion>${calc.completion.toFixed(1)}%</td>
                 <td data-goal-weighted>${calc.weighted.toFixed(1)}%</td>
@@ -1130,6 +1135,12 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.closest("#newTaskBtn")) openTask();
   if (event.target.closest("[data-close-modal]")) closeTask();
+  const editEvidence = event.target.closest("[data-edit-evidence]");
+  if (editEvidence) {
+    const cell = editEvidence.closest(".goal-evidence-cell");
+    cell.querySelector("[data-goal-evidence]").classList.remove("hidden");
+    editEvidence.closest(".goal-evidence-link").remove();
+  }
   if (event.target.closest("#newCategoryBtn")) openCategory();
   if (event.target.closest("[data-close-category]")) $("#categoryModal").classList.add("hidden");
   if (event.target.closest("#newStatusBtn")) openStatus();

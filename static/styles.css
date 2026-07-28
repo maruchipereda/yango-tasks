@@ -1212,8 +1212,25 @@ body.sidebar-collapsed .sidebar-logout {
 }
 
 .goal-evidence-link {
-  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
+  white-space: nowrap;
+}
+
+.link-button {
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-decoration: underline;
+}
+
+.link-button:hover {
+  transform: none;
 }
 
 .goals-actions {
