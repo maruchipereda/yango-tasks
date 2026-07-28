@@ -541,7 +541,8 @@ def can_manage_monthly_goals(current_user, target_user):
 
 
 def list_monthly_goals_for(user, query):
-    month = normalize_month(query.get("month", [""])[0])
+    requested_month = clean_text(query.get("month", [""])[0])
+    month = normalize_month(requested_month) if requested_month else ""
     requested_user = clean_text(query.get("user_id", [""])[0])
     visible_users = list_users_for(user)
     fallback_user_id = int(user["id"]) if user["role"] == "colaborador" else (visible_users[0]["id"] if visible_users else user["id"])
@@ -552,17 +553,36 @@ def list_monthly_goals_for(user, query):
             target_user = visible_goal_user(con, user, fallback_user_id)
         if not target_user:
             raise ValueError("Usuario no disponible")
-        rows = con.execute(
-            """
-            select monthly_goals.*, users.name as user_name, users.team as user_team
-            from monthly_goals
-            join users on users.id = monthly_goals.user_id
-            where monthly_goals.user_id = ? and monthly_goals.month = ?
-            order by monthly_goals.position
-            """,
-            (target_user["id"], month),
-        ).fetchall()
+        if month:
+            rows = con.execute(
+                """
+                select monthly_goals.*, users.name as user_name, users.team as user_team
+                from monthly_goals
+                join users on users.id = monthly_goals.user_id
+                where monthly_goals.user_id = ? and monthly_goals.month = ?
+                order by monthly_goals.position
+                """,
+                (target_user["id"], month),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """
+                select monthly_goals.*, users.name as user_name, users.team as user_team
+                from monthly_goals
+                join users on users.id = monthly_goals.user_id
+                where monthly_goals.user_id = ?
+                order by monthly_goals.month desc, monthly_goals.position
+                """,
+                (target_user["id"],),
+            ).fetchall()
     goals = [public_monthly_goal(row) for row in rows]
+    months = []
+    for goal in goals:
+        if not months or months[-1]["month"] != goal["month"]:
+            months.append({"month": goal["month"], "goals": [], "total_completion": 0})
+        months[-1]["goals"].append(goal)
+    for item in months:
+        item["total_completion"] = round(sum(goal["weighted_completion"] for goal in item["goals"]), 1)
     total = round(sum(goal["weighted_completion"] for goal in goals), 1)
     return {
         "month": month,
@@ -570,6 +590,7 @@ def list_monthly_goals_for(user, query):
         "selected_user": target_user,
         "users": visible_users,
         "goals": goals,
+        "months": months,
         "total_completion": total,
         "can_manage": can_manage_monthly_goals(user, target_user),
     }
@@ -975,6 +996,7 @@ def create_monthly_goals_table(con):
             success_type text not null check (success_type in ('numeric', 'binary')),
             target_value real,
             weight real not null,
+            evidence_url text not null default '',
             fact_value text not null default '',
             created_by integer not null references users(id),
             created_at text not null,
@@ -988,6 +1010,12 @@ def create_monthly_goals_table(con):
         on monthly_goals(user_id, month, position)
         """
     )
+
+
+def ensure_monthly_goal_columns(con):
+    existing = {row["name"] for row in con.execute("pragma table_info(monthly_goals)")}
+    if "evidence_url" not in existing:
+        con.execute("alter table monthly_goals add column evidence_url text not null default ''")
 
 
 def validate_monthly_goal_rows(rows):
@@ -1024,6 +1052,7 @@ def validate_monthly_goal_rows(rows):
             "success_type": success_type,
             "target_value": target_value,
             "weight": weight,
+            "evidence_url": clean_text(row.get("evidence_url"))[:500],
         })
     if abs(total_weight - 100.0) > 0.01:
         raise ValueError("Los pesos de los 4 goals deben sumar 100%")
@@ -1227,6 +1256,7 @@ def init_db():
         ensure_tasks_status_flexible(con)
         ensure_task_categories(con)
         create_monthly_goals_table(con)
+        ensure_monthly_goal_columns(con)
         con.execute(
             """
             create unique index if not exists idx_tasks_recurrence_instance
@@ -1562,10 +1592,10 @@ class Handler(BaseHTTPRequestHandler):
                             con.execute(
                                 """
                                 update monthly_goals
-                                set position = ?, objective = ?, success_type = ?, target_value = ?, weight = ?, updated_at = ?
+                                set position = ?, objective = ?, success_type = ?, target_value = ?, weight = ?, evidence_url = ?, updated_at = ?
                                 where id = ?
                                 """,
-                                (goal["position"], goal["objective"], goal["success_type"], goal["target_value"], goal["weight"], timestamp, goal["id"]),
+                                (goal["position"], goal["objective"], goal["success_type"], goal["target_value"], goal["weight"], goal["evidence_url"], timestamp, goal["id"]),
                             )
                             kept_ids.append(goal["id"])
                         else:
@@ -1573,10 +1603,10 @@ class Handler(BaseHTTPRequestHandler):
                                 """
                                 insert into monthly_goals (
                                     user_id, month, position, objective, success_type, target_value,
-                                    weight, fact_value, created_by, created_at, updated_at
-                                ) values (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)
+                                    weight, evidence_url, fact_value, created_by, created_at, updated_at
+                                ) values (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)
                                 """,
-                                (user_id, month, goal["position"], goal["objective"], goal["success_type"], goal["target_value"], goal["weight"], user["id"], timestamp, timestamp),
+                                (user_id, month, goal["position"], goal["objective"], goal["success_type"], goal["target_value"], goal["weight"], goal["evidence_url"], user["id"], timestamp, timestamp),
                             ).lastrowid
                             kept_ids.append(new_id)
                     placeholders = ",".join("?" for _ in kept_ids)
@@ -1587,7 +1617,8 @@ class Handler(BaseHTTPRequestHandler):
                 return send_json(self, list_monthly_goals_for(user, {"user_id": [str(user_id)], "month": [month]}))
 
             if parsed.path == "/api/monthly-goals/facts":
-                month = normalize_month(body.get("month"))
+                requested_month = clean_text(body.get("month"))
+                month = normalize_month(requested_month) if requested_month else ""
                 user_id = int(body.get("user_id") or 0)
                 facts = body.get("facts")
                 if not isinstance(facts, list):
@@ -1599,10 +1630,16 @@ class Handler(BaseHTTPRequestHandler):
                         return send_json(self, {"error": "No autorizado"}, 403)
                     for item in facts:
                         goal_id = int(item.get("id") or 0)
-                        goal = con.execute(
-                            "select * from monthly_goals where id = ? and user_id = ? and month = ?",
-                            (goal_id, target_user["id"], month),
-                        ).fetchone()
+                        if month:
+                            goal = con.execute(
+                                "select * from monthly_goals where id = ? and user_id = ? and month = ?",
+                                (goal_id, target_user["id"], month),
+                            ).fetchone()
+                        else:
+                            goal = con.execute(
+                                "select * from monthly_goals where id = ? and user_id = ?",
+                                (goal_id, target_user["id"]),
+                            ).fetchone()
                         if not goal:
                             continue
                         fact_value = normalize_goal_fact(row_to_dict(goal), item.get("fact_value"))
@@ -1610,7 +1647,10 @@ class Handler(BaseHTTPRequestHandler):
                             "update monthly_goals set fact_value = ?, updated_at = ? where id = ?",
                             (fact_value, timestamp, goal_id),
                         )
-                return send_json(self, list_monthly_goals_for(user, {"user_id": [str(user_id)], "month": [month]}))
+                query = {"user_id": [str(user_id)]}
+                if month:
+                    query["month"] = [month]
+                return send_json(self, list_monthly_goals_for(user, query))
 
             if parsed.path == "/api/categories/save":
                 if not can_manage_admin_data(user):

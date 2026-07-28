@@ -141,12 +141,9 @@
             <label>Persona
               <select id="goalsUser"></select>
             </label>
-            <label>Mes
-              <input id="goalsMonth" type="month" />
-            </label>
             <div class="goals-total">
-              <span id="goalsTotal">0%</span>
-              <small>cumplimiento ponderado</small>
+              <span id="goalsTotal">0</span>
+              <small id="goalsTotalLabel">meses cargados</small>
             </div>
           </div>
           <div id="goalsNotice" class="goals-notice"></div>
@@ -366,6 +363,9 @@
           </div>
           <button class="icon-button" type="button" data-close-goals aria-label="Cerrar">×</button>
         </div>
+        <label class="goals-modal-month">Mes
+          <input id="goalsModalMonth" type="month" />
+        </label>
         <div id="goalsEditor"></div>
         <div class="actions goals-actions">
           <button id="saveGoalsBtn" type="submit">Guardar objetivos</button>

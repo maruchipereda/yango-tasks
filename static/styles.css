@@ -1028,7 +1028,7 @@ body.sidebar-collapsed .sidebar-logout {
 
 .goals-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 180px minmax(150px, auto);
+  grid-template-columns: minmax(220px, 1fr) minmax(150px, auto);
   gap: 12px;
   align-items: end;
   margin-bottom: 14px;
@@ -1076,7 +1076,39 @@ body.sidebar-collapsed .sidebar-logout {
   background: #fff;
 }
 
+.goals-month-list {
+  display: grid;
+  gap: 0;
+}
+
+.goals-month-section + .goals-month-section {
+  border-top: 1px solid var(--line);
+}
+
+.goals-month-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  background: #fbfbf7;
+  border-bottom: 1px solid var(--line);
+}
+
+.goals-month-head h3 {
+  margin: 2px 0 0;
+  font-family: var(--font-brand);
+  font-size: 22px;
+}
+
+.goals-month-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .goals-record-head small,
+.goals-month-head small,
 #goalsModalSubtitle {
   color: var(--muted);
   font-size: 12px;
@@ -1178,18 +1210,66 @@ body.sidebar-collapsed .sidebar-logout {
   max-width: 520px;
 }
 
+.goal-evidence-link {
+  margin-top: 5px;
+  font-size: 12px;
+}
+
 .goals-actions {
   justify-content: flex-end;
 }
 
 .goals-modal-panel {
   display: grid;
-  width: min(1080px, 100%);
+  width: min(980px, 100%);
   gap: 14px;
 }
 
 #goalsModalSubtitle {
   margin: 4px 0 0;
+}
+
+.goals-modal-month {
+  width: min(220px, 100%);
+}
+
+.goals-editor-list {
+  display: grid;
+  gap: 10px;
+}
+
+.goal-editor-card {
+  display: grid;
+  grid-template-columns: 34px minmax(220px, 1.2fr) 132px 100px 90px minmax(160px, 0.8fr);
+  gap: 10px;
+  align-items: end;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.goal-editor-number {
+  align-self: center;
+  color: var(--ink);
+  font-weight: 950;
+  text-align: center;
+}
+
+.goal-editor-card label {
+  gap: 5px;
+  min-width: 0;
+}
+
+.goal-editor-card textarea,
+.goal-editor-card input,
+.goal-editor-card select {
+  min-height: 34px;
+  padding: 7px 8px;
+  font-size: 12px;
+}
+
+.goal-editor-card textarea {
+  min-width: 0;
+  resize: vertical;
 }
 
 .management-card {
@@ -1438,8 +1518,23 @@ body.sidebar-collapsed .sidebar-logout {
     flex-direction: column;
   }
 
+  .goals-month-head,
+  .goals-month-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .goals-record-score {
     justify-items: start;
+  }
+
+  .goal-editor-card {
+    grid-template-columns: 28px 1fr;
+  }
+
+  .goal-editor-objective,
+  .goal-editor-evidence {
+    grid-column: 2;
   }
 
   .form-grid {
