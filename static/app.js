@@ -720,6 +720,7 @@ function renderGoalMonthSection(monthData, canManage) {
             <th>Meta</th>
             <th>Peso</th>
             <th>Fact</th>
+            <th>Evidencia</th>
             <th>%</th>
             <th>Aporte</th>
           </tr>
@@ -729,20 +730,23 @@ function renderGoalMonthSection(monthData, canManage) {
             const calc = goalCompletion(goal);
             const criterion = goal.success_type === "binary" ? "Sí / No" : "Numérico";
             const target = goal.success_type === "binary" ? "Sí" : goal.target_value;
-            const evidence = goal.evidence_url ? `<a href="${escapeHtml(goal.evidence_url)}" target="_blank" rel="noreferrer">Evidencia</a>` : "";
+            const evidence = goal.evidence_url
+              ? `<a href="${escapeHtml(goal.evidence_url)}" target="_blank" rel="noreferrer">Abrir evidencia</a>`
+              : "";
             return `
               <tr data-goal-fact-row>
                 <td>${index + 1}<input type="hidden" data-goal-id value="${escapeHtml(goal.id || "")}" /></td>
-                <td>
-                  <strong>${escapeHtml(goal.objective || "")}</strong>
-                  ${evidence ? `<div class="goal-evidence-link">${evidence}</div>` : ""}
-                </td>
+                <td><strong>${escapeHtml(goal.objective || "")}</strong></td>
                 <td>${criterion}</td>
                 <td data-goal-target-value>${escapeHtml(target ?? "")}</td>
                 <td data-goal-weight-value>${Number(goal.weight || 0).toFixed(1)}%</td>
                 <td>
                   <input type="hidden" data-goal-type-value value="${escapeHtml(goal.success_type || "numeric")}" />
                   ${goalFactControl(goal)}
+                </td>
+                <td>
+                  <input data-goal-evidence type="url" value="${escapeHtml(goal.evidence_url || "")}" placeholder="https://" />
+                  ${evidence ? `<div class="goal-evidence-link">${evidence}</div>` : ""}
                 </td>
                 <td data-goal-completion>${calc.completion.toFixed(1)}%</td>
                 <td data-goal-weighted>${calc.weighted.toFixed(1)}%</td>
@@ -801,9 +805,6 @@ function renderGoalEditor(rows) {
             <label>Peso
               <input data-goal-weight type="number" min="0" max="100" step="0.01" value="${goal.weight || ""}" />
             </label>
-            <label class="goal-editor-evidence">Evidencia
-              <input data-goal-evidence type="url" value="${escapeHtml(goal.evidence_url || "")}" placeholder="https://" />
-            </label>
           </div>
         `;
       }).join("")}
@@ -839,7 +840,6 @@ function collectGoalRows() {
     success_type: row.querySelector("[data-goal-type]").value,
     target_value: row.querySelector("[data-goal-target]").value,
     weight: row.querySelector("[data-goal-weight]").value,
-    evidence_url: row.querySelector("[data-goal-evidence]").value.trim(),
   }));
 }
 
@@ -850,6 +850,7 @@ function collectGoalFacts() {
     target_value: row.querySelector("[data-goal-target-value]").textContent.trim(),
     weight: row.querySelector("[data-goal-weight-value]").textContent.replace("%", "").trim(),
     fact_value: row.querySelector("[data-goal-fact]").value,
+    evidence_url: row.querySelector("[data-goal-evidence]").value.trim(),
   }));
 }
 
@@ -1422,7 +1423,7 @@ $("#saveFactsBtn").addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({
         user_id: $("#goalsUser").value,
-        facts: collectGoalFacts().filter((goal) => goal.id).map((goal) => ({ id: goal.id, fact_value: goal.fact_value })),
+        facts: collectGoalFacts().filter((goal) => goal.id).map((goal) => ({ id: goal.id, fact_value: goal.fact_value, evidence_url: goal.evidence_url })),
       }),
     });
     state.monthlyGoals = payload;

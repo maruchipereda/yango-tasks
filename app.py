@@ -1052,7 +1052,6 @@ def validate_monthly_goal_rows(rows):
             "success_type": success_type,
             "target_value": target_value,
             "weight": weight,
-            "evidence_url": clean_text(row.get("evidence_url"))[:500],
         })
     if abs(total_weight - 100.0) > 0.01:
         raise ValueError("Los pesos de los 4 goals deben sumar 100%")
@@ -1592,10 +1591,10 @@ class Handler(BaseHTTPRequestHandler):
                             con.execute(
                                 """
                                 update monthly_goals
-                                set position = ?, objective = ?, success_type = ?, target_value = ?, weight = ?, evidence_url = ?, updated_at = ?
+                                set position = ?, objective = ?, success_type = ?, target_value = ?, weight = ?, updated_at = ?
                                 where id = ?
                                 """,
-                                (goal["position"], goal["objective"], goal["success_type"], goal["target_value"], goal["weight"], goal["evidence_url"], timestamp, goal["id"]),
+                                (goal["position"], goal["objective"], goal["success_type"], goal["target_value"], goal["weight"], timestamp, goal["id"]),
                             )
                             kept_ids.append(goal["id"])
                         else:
@@ -1603,10 +1602,10 @@ class Handler(BaseHTTPRequestHandler):
                                 """
                                 insert into monthly_goals (
                                     user_id, month, position, objective, success_type, target_value,
-                                    weight, evidence_url, fact_value, created_by, created_at, updated_at
-                                ) values (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)
+                                    weight, fact_value, created_by, created_at, updated_at
+                                ) values (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)
                                 """,
-                                (user_id, month, goal["position"], goal["objective"], goal["success_type"], goal["target_value"], goal["weight"], goal["evidence_url"], user["id"], timestamp, timestamp),
+                                (user_id, month, goal["position"], goal["objective"], goal["success_type"], goal["target_value"], goal["weight"], user["id"], timestamp, timestamp),
                             ).lastrowid
                             kept_ids.append(new_id)
                     placeholders = ",".join("?" for _ in kept_ids)
@@ -1658,9 +1657,10 @@ class Handler(BaseHTTPRequestHandler):
                         if not goal:
                             continue
                         fact_value = normalize_goal_fact(row_to_dict(goal), item.get("fact_value"))
+                        evidence_url = clean_text(item.get("evidence_url"))[:500]
                         con.execute(
-                            "update monthly_goals set fact_value = ?, updated_at = ? where id = ?",
-                            (fact_value, timestamp, goal_id),
+                            "update monthly_goals set fact_value = ?, evidence_url = ?, updated_at = ? where id = ?",
+                            (fact_value, evidence_url, timestamp, goal_id),
                         )
                 query = {"user_id": [str(user_id)]}
                 if month:
