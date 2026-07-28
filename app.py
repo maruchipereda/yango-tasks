@@ -596,6 +596,40 @@ def list_monthly_goals_for(user, query):
     }
 
 
+def public_okr_period(row, objectives):
+    data = row_to_dict(row)
+    data["objectives"] = objectives
+    return data
+
+
+def list_okrs(user):
+    with db() as con:
+        period_rows = con.execute(
+            """
+            select okr_periods.*, users.name as created_by_name
+            from okr_periods
+            left join users on users.id = okr_periods.created_by
+            order by okr_periods.period_from desc, okr_periods.period_to desc, okr_periods.id desc
+            """
+        ).fetchall()
+        objective_rows = con.execute(
+            """
+            select *
+            from okr_objectives
+            order by okr_id, position, id
+            """
+        ).fetchall()
+    objectives_by_period = {}
+    for row in objective_rows:
+        objective = row_to_dict(row)
+        objectives_by_period.setdefault(objective["okr_id"], []).append(objective)
+    periods = [
+        public_okr_period(row, objectives_by_period.get(row["id"], []))
+        for row in period_rows
+    ]
+    return {"periods": periods, "can_manage": user["role"] == "admin"}
+
+
 def list_categories():
     with db() as con:
         return [
@@ -1018,6 +1052,82 @@ def ensure_monthly_goal_columns(con):
         con.execute("alter table monthly_goals add column evidence_url text not null default ''")
 
 
+def create_okr_tables(con):
+    con.execute(
+        """
+        create table if not exists okr_periods (
+            id integer primary key autoincrement,
+            period_from text not null,
+            period_to text not null,
+            created_by integer not null references users(id),
+            created_at text not null,
+            updated_at text not null
+        )
+        """
+    )
+    con.execute(
+        """
+        create table if not exists okr_objectives (
+            id integer primary key autoincrement,
+            okr_id integer not null references okr_periods(id) on delete cascade,
+            position integer not null,
+            regional_priorities text not null,
+            key_north_stars text not null,
+            kpi1_description text not null,
+            kpi1_from text not null,
+            kpi1_to text not null,
+            kpi2_description text not null,
+            kpi2_from text not null,
+            kpi2_to text not null,
+            proposed_projects text not null,
+            kpi_owner text not null
+        )
+        """
+    )
+
+
+def validate_okr_payload(body):
+    period_from = normalize_month(body.get("period_from"))
+    period_to = normalize_month(body.get("period_to"))
+    if period_from > period_to:
+        raise ValueError("El rango de OKR no es válido")
+    objectives = body.get("objectives")
+    if not isinstance(objectives, list) or not objectives:
+        raise ValueError("Agrega al menos un objetivo OKR")
+    normalized = []
+    for index, row in enumerate(objectives, start=1):
+        regional_priorities = clean_text(row.get("regional_priorities"))[:800]
+        key_north_stars = clean_text(row.get("key_north_stars"))[:800]
+        kpi1_description = clean_text(row.get("kpi1_description"))[:500]
+        kpi1_from = clean_text(row.get("kpi1_from"))[:80]
+        kpi1_to = clean_text(row.get("kpi1_to"))[:80]
+        kpi2_description = clean_text(row.get("kpi2_description"))[:500]
+        kpi2_from = clean_text(row.get("kpi2_from"))[:80]
+        kpi2_to = clean_text(row.get("kpi2_to"))[:80]
+        proposed_projects = clean_text(row.get("proposed_projects"))[:1200]
+        kpi_owner = clean_text(row.get("kpi_owner"))[:200]
+        required = [
+            regional_priorities, key_north_stars, kpi1_description, kpi1_from, kpi1_to,
+            kpi2_description, kpi2_from, kpi2_to, proposed_projects, kpi_owner,
+        ]
+        if not all(required):
+            raise ValueError("Completa todos los campos de cada OKR")
+        normalized.append({
+            "position": index,
+            "regional_priorities": regional_priorities,
+            "key_north_stars": key_north_stars,
+            "kpi1_description": kpi1_description,
+            "kpi1_from": kpi1_from,
+            "kpi1_to": kpi1_to,
+            "kpi2_description": kpi2_description,
+            "kpi2_from": kpi2_from,
+            "kpi2_to": kpi2_to,
+            "proposed_projects": proposed_projects,
+            "kpi_owner": kpi_owner,
+        })
+    return int(body.get("id") or 0), period_from, period_to, normalized
+
+
 def validate_monthly_goal_rows(rows):
     if not isinstance(rows, list) or len(rows) != 4:
         raise ValueError("Debes guardar exactamente 4 goals")
@@ -1256,6 +1366,7 @@ def init_db():
         ensure_task_categories(con)
         create_monthly_goals_table(con)
         ensure_monthly_goal_columns(con)
+        create_okr_tables(con)
         con.execute(
             """
             create unique index if not exists idx_tasks_recurrence_instance
@@ -1357,6 +1468,11 @@ class Handler(BaseHTTPRequestHandler):
             if user is None:
                 return
             return send_json(self, list_monthly_goals_for(user, parse_qs(parsed.query)))
+        if parsed.path == "/api/okrs":
+            user = require_user(self)
+            if user is None:
+                return
+            return send_json(self, list_okrs(user))
         if parsed.path == "/api/export":
             user = require_user(self)
             if user is None:
@@ -1666,6 +1782,56 @@ class Handler(BaseHTTPRequestHandler):
                 if month:
                     query["month"] = [month]
                 return send_json(self, list_monthly_goals_for(user, query))
+
+            if parsed.path == "/api/okrs/save":
+                if user["role"] != "admin":
+                    return send_json(self, {"error": "Solo admin puede gestionar OKRs"}, 403)
+                okr_id, period_from, period_to, objectives = validate_okr_payload(body)
+                timestamp = now_iso()
+                with db() as con:
+                    if okr_id:
+                        existing = con.execute("select * from okr_periods where id = ?", (okr_id,)).fetchone()
+                        if not existing:
+                            return send_json(self, {"error": "OKR no encontrado"}, 404)
+                        con.execute(
+                            "update okr_periods set period_from = ?, period_to = ?, updated_at = ? where id = ?",
+                            (period_from, period_to, timestamp, okr_id),
+                        )
+                        con.execute("delete from okr_objectives where okr_id = ?", (okr_id,))
+                    else:
+                        okr_id = con.execute(
+                            """
+                            insert into okr_periods (period_from, period_to, created_by, created_at, updated_at)
+                            values (?, ?, ?, ?, ?)
+                            """,
+                            (period_from, period_to, user["id"], timestamp, timestamp),
+                        ).lastrowid
+                    for objective in objectives:
+                        con.execute(
+                            """
+                            insert into okr_objectives (
+                                okr_id, position, regional_priorities, key_north_stars,
+                                kpi1_description, kpi1_from, kpi1_to,
+                                kpi2_description, kpi2_from, kpi2_to,
+                                proposed_projects, kpi_owner
+                            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                okr_id,
+                                objective["position"],
+                                objective["regional_priorities"],
+                                objective["key_north_stars"],
+                                objective["kpi1_description"],
+                                objective["kpi1_from"],
+                                objective["kpi1_to"],
+                                objective["kpi2_description"],
+                                objective["kpi2_from"],
+                                objective["kpi2_to"],
+                                objective["proposed_projects"],
+                                objective["kpi_owner"],
+                            ),
+                        )
+                return send_json(self, list_okrs(user))
 
             if parsed.path == "/api/categories/save":
                 if not can_manage_admin_data(user):

@@ -1290,6 +1290,136 @@ body.sidebar-collapsed .sidebar-logout {
   resize: vertical;
 }
 
+.okrs-list {
+  display: grid;
+  gap: 14px;
+}
+
+.okr-period-card,
+.okr-objective-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.okr-period-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 15px 16px;
+  background: #fbfbf7;
+  border-bottom: 1px solid var(--line);
+}
+
+.okr-period-head small,
+.okr-objective-card small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.okr-period-head h3 {
+  margin: 2px 0 0;
+  font-family: var(--font-brand);
+  font-size: 24px;
+}
+
+.okr-objective-list {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.okr-objective-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.okr-objective-card p {
+  margin: 3px 0 0;
+  font-weight: 750;
+}
+
+.okr-objective-title {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.okr-objective-title > span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--red);
+  color: #fff;
+  font-weight: 950;
+}
+
+.okr-two-col,
+.okr-kpis,
+.okr-period-grid,
+.okr-kpi-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.okr-kpis {
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+}
+
+.okr-kpis div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfbf7;
+}
+
+.okr-kpis strong,
+.okr-kpis span {
+  display: block;
+}
+
+.okr-kpis span {
+  margin-top: 4px;
+  color: var(--red);
+  font-weight: 950;
+}
+
+.okr-modal-panel {
+  display: grid;
+  width: min(1040px, 100%);
+  gap: 14px;
+}
+
+#okrObjectives {
+  display: grid;
+  gap: 12px;
+}
+
+.okr-editor-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.okr-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .management-card {
   display: grid;
   gap: 14px;
@@ -1552,6 +1682,18 @@ body.sidebar-collapsed .sidebar-logout {
 
   .goal-editor-objective {
     grid-column: 2;
+  }
+
+  .okr-two-col,
+  .okr-kpis,
+  .okr-period-grid,
+  .okr-kpi-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .okr-period-head {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .form-grid {

@@ -20,6 +20,7 @@ const state = {
   tasks: [],
   userWorkload: { users: [], statuses: [] },
   monthlyGoals: { users: [], goals: [], month: "", selected_user_id: null, can_manage: false, total_completion: 0 },
+  okrs: { periods: [], can_manage: false },
   activeView: "mine",
   dueWindow: "",
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "1",
@@ -91,6 +92,10 @@ function monthLabel(value) {
 
 function isGoalManager() {
   return ["admin", "manager"].includes(state.user?.role);
+}
+
+function isOkrManager() {
+  return state.user?.role === "admin";
 }
 
 function isSoon(value) {
@@ -337,6 +342,12 @@ async function loadMonthlyGoalsForMonth(month) {
   return api(`/api/monthly-goals?${params.toString()}`);
 }
 
+async function loadOkrs() {
+  const payload = await api("/api/okrs");
+  state.okrs = payload;
+  renderOkrs();
+}
+
 async function bootstrap() {
   const payload = await api("/api/bootstrap");
   state.user = payload.user;
@@ -372,12 +383,12 @@ function applyPermissions() {
 }
 
 function setView(view) {
-  if (state.user?.role === "colaborador" && !["mine", "goals"].includes(view)) view = "mine";
+  if (state.user?.role === "colaborador" && !["mine", "goals", "okrs"].includes(view)) view = "mine";
   if (state.user?.role !== "admin" && (view === "categories" || view === "users")) view = "mine";
   state.activeView = view;
   document.querySelectorAll(".view").forEach((node) => node.classList.toggle("active", node.id === view));
   document.querySelectorAll(".nav-btn").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
-  const titles = { mine: "Mi panel", team: "Equipo", goals: "Monthly Goals", categories: "Categorías", users: "Usuarios" };
+  const titles = { mine: "Mi panel", team: "Equipo", goals: "Monthly Goals", okrs: "OKRs", categories: "Categorías", users: "Usuarios" };
   $("#viewTitle").textContent = titles[view];
   $("#newTaskBtn").classList.toggle("hidden", !["mine", "team"].includes(view));
   renderDueWindowControl();
@@ -389,6 +400,10 @@ function setView(view) {
   if (view === "goals") {
     renderMonthlyGoals();
     loadMonthlyGoals().catch((error) => toast(error.message));
+  }
+  if (view === "okrs") {
+    renderOkrs();
+    loadOkrs().catch((error) => toast(error.message));
   }
   if (view === "mine" || view === "team") loadTasks().catch((error) => toast(error.message));
 }
@@ -940,6 +955,163 @@ function closeGoalsModal() {
   $("#goalsModal").classList.add("hidden");
 }
 
+function okrRangeLabel(period) {
+  return `${monthLabel(period.period_from)} - ${monthLabel(period.period_to)}`;
+}
+
+function blankOkrObjective() {
+  return {
+    regional_priorities: "",
+    key_north_stars: "",
+    kpi1_description: "",
+    kpi1_from: "",
+    kpi1_to: "",
+    kpi2_description: "",
+    kpi2_from: "",
+    kpi2_to: "",
+    proposed_projects: "",
+    kpi_owner: "",
+  };
+}
+
+function renderOkrs() {
+  const canManage = Boolean(state.okrs?.can_manage);
+  $("#newOkrBtn").classList.toggle("hidden", !canManage);
+  const periods = state.okrs?.periods || [];
+  if (!periods.length) {
+    $("#okrRecord").innerHTML = `
+      <div class="goals-empty">
+        <h3>OKRs</h3>
+        <p>Todavía no hay OKRs cargados.</p>
+      </div>
+    `;
+    return;
+  }
+  $("#okrRecord").innerHTML = periods.map((period) => `
+    <section class="okr-period-card">
+      <div class="okr-period-head">
+        <div>
+          <small>Período</small>
+          <h3>${escapeHtml(okrRangeLabel(period))}</h3>
+        </div>
+        ${canManage ? `<button class="secondary tiny-action" type="button" data-edit-okr="${period.id}">Editar</button>` : ""}
+      </div>
+      <div class="okr-objective-list">
+        ${(period.objectives || []).map((objective, index) => `
+          <article class="okr-objective-card">
+            <div class="okr-objective-title">
+              <span>${index + 1}</span>
+              <div>
+                <small>Regional priorities</small>
+                <p>${escapeHtml(objective.regional_priorities)}</p>
+              </div>
+            </div>
+            <div class="okr-two-col">
+              <div>
+                <small>Key north stars</small>
+                <p>${escapeHtml(objective.key_north_stars)}</p>
+              </div>
+              <div>
+                <small>KPI owner</small>
+                <p>${escapeHtml(objective.kpi_owner)}</p>
+              </div>
+            </div>
+            <div class="okr-kpis">
+              <div><strong>${escapeHtml(objective.kpi1_description)}</strong><span>${escapeHtml(objective.kpi1_from)} → ${escapeHtml(objective.kpi1_to)}</span></div>
+              <div><strong>${escapeHtml(objective.kpi2_description)}</strong><span>${escapeHtml(objective.kpi2_from)} → ${escapeHtml(objective.kpi2_to)}</span></div>
+            </div>
+            <div>
+              <small>Proposed projects</small>
+              <p>${escapeHtml(objective.proposed_projects)}</p>
+            </div>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `).join("");
+}
+
+function okrObjectiveEditorItem(objective = blankOkrObjective(), index = 0) {
+  const wrap = document.createElement("div");
+  wrap.className = "okr-editor-card";
+  wrap.dataset.okrObjective = "1";
+  wrap.innerHTML = `
+    <div class="okr-editor-head">
+      <strong>Objetivo ${index + 1}</strong>
+      <button class="danger-action tiny-action" type="button" data-remove-okr-objective>Quitar</button>
+    </div>
+    <label>Regional priorities
+      <textarea data-okr-regional rows="2" required>${escapeHtml(objective.regional_priorities || "")}</textarea>
+    </label>
+    <label>Key north stars
+      <textarea data-okr-north rows="2" required>${escapeHtml(objective.key_north_stars || "")}</textarea>
+    </label>
+    <div class="okr-kpi-editor">
+      <label>KPI 1
+        <input data-okr-kpi1-desc required value="${escapeHtml(objective.kpi1_description || "")}" placeholder="Descripción del KPI" />
+      </label>
+      <label>From
+        <input data-okr-kpi1-from required value="${escapeHtml(objective.kpi1_from || "")}" />
+      </label>
+      <label>To
+        <input data-okr-kpi1-to required value="${escapeHtml(objective.kpi1_to || "")}" />
+      </label>
+    </div>
+    <div class="okr-kpi-editor">
+      <label>KPI 2
+        <input data-okr-kpi2-desc required value="${escapeHtml(objective.kpi2_description || "")}" placeholder="Descripción del KPI" />
+      </label>
+      <label>From
+        <input data-okr-kpi2-from required value="${escapeHtml(objective.kpi2_from || "")}" />
+      </label>
+      <label>To
+        <input data-okr-kpi2-to required value="${escapeHtml(objective.kpi2_to || "")}" />
+      </label>
+    </div>
+    <label>Proposed projects
+      <textarea data-okr-projects rows="2" required>${escapeHtml(objective.proposed_projects || "")}</textarea>
+    </label>
+    <label>KPI owner
+      <input data-okr-owner required value="${escapeHtml(objective.kpi_owner || "")}" />
+    </label>
+  `;
+  return wrap;
+}
+
+function renderOkrObjectiveEditors(objectives = [blankOkrObjective()]) {
+  $("#okrObjectives").innerHTML = "";
+  objectives.forEach((objective, index) => $("#okrObjectives").appendChild(okrObjectiveEditorItem(objective, index)));
+}
+
+function openOkrModal(period = null) {
+  $("#okrForm").reset();
+  $("#okrId").value = period?.id || "";
+  $("#okrModalTitle").textContent = period ? "Editar OKRs" : "Crear OKRs";
+  $("#okrPeriodFrom").value = period?.period_from || currentMonth();
+  $("#okrPeriodTo").value = period?.period_to || currentMonth();
+  renderOkrObjectiveEditors(period?.objectives?.length ? period.objectives : [blankOkrObjective()]);
+  $("#okrModal").classList.remove("hidden");
+}
+
+function closeOkrModal() {
+  $("#okrModal").classList.add("hidden");
+}
+
+function collectOkrObjectives() {
+  return [...$("#okrObjectives").querySelectorAll("[data-okr-objective]")].map((row) => ({
+    regional_priorities: row.querySelector("[data-okr-regional]").value.trim(),
+    key_north_stars: row.querySelector("[data-okr-north]").value.trim(),
+    kpi1_description: row.querySelector("[data-okr-kpi1-desc]").value.trim(),
+    kpi1_from: row.querySelector("[data-okr-kpi1-from]").value.trim(),
+    kpi1_to: row.querySelector("[data-okr-kpi1-to]").value.trim(),
+    kpi2_description: row.querySelector("[data-okr-kpi2-desc]").value.trim(),
+    kpi2_from: row.querySelector("[data-okr-kpi2-from]").value.trim(),
+    kpi2_to: row.querySelector("[data-okr-kpi2-to]").value.trim(),
+    proposed_projects: row.querySelector("[data-okr-projects]").value.trim(),
+    kpi_owner: row.querySelector("[data-okr-owner]").value.trim(),
+  }));
+}
+
 function render() {
   if (state.activeView === "mine") renderMine();
   if (state.activeView === "team") renderTeam();
@@ -1154,6 +1326,21 @@ document.addEventListener("click", async (event) => {
   }
   if (event.target.closest("#editGoalsBtn")) openGoalsModal();
   if (event.target.closest("[data-close-goals]")) closeGoalsModal();
+  if (event.target.closest("#newOkrBtn")) openOkrModal();
+  if (event.target.closest("[data-close-okr]")) closeOkrModal();
+  const editOkr = event.target.closest("[data-edit-okr]");
+  if (editOkr) {
+    const period = (state.okrs.periods || []).find((item) => Number(item.id) === Number(editOkr.dataset.editOkr));
+    if (period) openOkrModal(period);
+  }
+  if (event.target.closest("#addOkrObjectiveBtn")) {
+    $("#okrObjectives").appendChild(okrObjectiveEditorItem(blankOkrObjective(), $("#okrObjectives").children.length));
+  }
+  const removeOkrObjective = event.target.closest("[data-remove-okr-objective]");
+  if (removeOkrObjective) {
+    removeOkrObjective.closest("[data-okr-objective]").remove();
+    if (!$("#okrObjectives").children.length) $("#okrObjectives").appendChild(okrObjectiveEditorItem(blankOkrObjective(), 0));
+  }
 
   const editTask = event.target.closest("[data-edit-task]");
   if (editTask) openTask(state.tasks.find((task) => Number(task.id) === Number(editTask.dataset.editTask)));
@@ -1440,6 +1627,27 @@ $("#saveFactsBtn").addEventListener("click", async () => {
     state.monthlyGoals = payload;
     renderMonthlyGoals();
     toast("Facts guardados");
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+$("#okrForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const payload = await api("/api/okrs/save", {
+      method: "POST",
+      body: JSON.stringify({
+        id: $("#okrId").value,
+        period_from: $("#okrPeriodFrom").value,
+        period_to: $("#okrPeriodTo").value,
+        objectives: collectOkrObjectives(),
+      }),
+    });
+    state.okrs = payload;
+    renderOkrs();
+    closeOkrModal();
+    toast("OKRs guardados");
   } catch (error) {
     toast(error.message);
   }

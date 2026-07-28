@@ -56,6 +56,14 @@
           <path d="M3 12h3"></path>
           <path d="M18 12h3"></path>
         </symbol>
+        <symbol id="icon-okrs" viewBox="0 0 24 24">
+          <path d="M4 5h16"></path>
+          <path d="M4 12h16"></path>
+          <path d="M4 19h16"></path>
+          <circle cx="7" cy="5" r="2"></circle>
+          <circle cx="12" cy="12" r="2"></circle>
+          <circle cx="17" cy="19" r="2"></circle>
+        </symbol>
         <symbol id="icon-logout" viewBox="0 0 24 24">
           <path d="M10 4H5.8A1.8 1.8 0 0 0 4 5.8v12.4A1.8 1.8 0 0 0 5.8 20H10"></path>
           <path d="M14 8l4 4-4 4"></path>
@@ -75,6 +83,7 @@
           <button class="nav-btn active" type="button" data-view="mine" title="Mi panel"><svg class="nav-icon"><use href="#icon-dashboard"></use></svg><span class="nav-label">Mi panel</span></button>
           <button class="nav-btn" type="button" data-view="team" title="Equipo"><svg class="nav-icon"><use href="#icon-team"></use></svg><span class="nav-label">Equipo</span></button>
           <button class="nav-btn" type="button" data-view="goals" title="Monthly Goals"><svg class="nav-icon"><use href="#icon-goals"></use></svg><span class="nav-label">Monthly Goals</span></button>
+          <button class="nav-btn" type="button" data-view="okrs" title="OKRs"><svg class="nav-icon"><use href="#icon-okrs"></use></svg><span class="nav-label">OKRs</span></button>
           <button class="nav-btn admin-only" type="button" data-view="categories" title="Categorías"><svg class="nav-icon"><use href="#icon-categories"></use></svg><span class="nav-label">Categorías</span></button>
           <button class="nav-btn admin-only" type="button" data-view="users" title="Usuarios"><svg class="nav-icon"><use href="#icon-users"></use></svg><span class="nav-label">Usuarios</span></button>
         </nav>
@@ -154,6 +163,17 @@
             <button id="editGoalsBtn" type="button">+ Crear nuevos objetivos</button>
             <button id="saveFactsBtn" class="secondary" type="button">Guardar facts</button>
           </div>
+        </section>
+
+        <section id="okrs" class="view">
+          <div class="manager-head">
+            <div>
+              <h3>OKRs</h3>
+              <p>Rangos mensuales con prioridades, north stars, KPIs y proyectos.</p>
+            </div>
+            <button id="newOkrBtn" type="button">+ Crear OKRs</button>
+          </div>
+          <div id="okrRecord" class="okrs-list"></div>
         </section>
 
         <section id="categories" class="view">
@@ -371,6 +391,34 @@
           <button id="deleteGoalsBtn" class="danger-action hidden" type="button">Borrar objetivos</button>
           <button id="saveGoalsBtn" type="submit">Guardar objetivos</button>
           <button class="secondary" type="button" data-close-goals>Cancelar</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="okrModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="okrModalTitle">
+      <div class="modal-backdrop" data-close-okr></div>
+      <form id="okrForm" class="modal-panel okr-modal-panel">
+        <div class="modal-head">
+          <div>
+            <h3 id="okrModalTitle">OKRs</h3>
+            <p>Define el período y los objetivos del rango.</p>
+          </div>
+          <button class="icon-button" type="button" data-close-okr aria-label="Cerrar">×</button>
+        </div>
+        <input id="okrId" type="hidden" />
+        <div class="okr-period-grid">
+          <label>From mes
+            <input id="okrPeriodFrom" type="month" required />
+          </label>
+          <label>To mes
+            <input id="okrPeriodTo" type="month" required />
+          </label>
+        </div>
+        <div id="okrObjectives"></div>
+        <div class="actions goals-actions">
+          <button id="addOkrObjectiveBtn" class="secondary" type="button">+ Objetivo</button>
+          <button type="submit">Guardar OKRs</button>
+          <button class="secondary" type="button" data-close-okr>Cancelar</button>
         </div>
       </form>
     </div>
