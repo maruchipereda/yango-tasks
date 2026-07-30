@@ -1135,6 +1135,7 @@ function openOkrModal(period = null) {
   $("#okrModalTitle").textContent = period ? "Editar OKRs" : "Crear OKRs";
   $("#okrPeriodFrom").value = period?.period_from || currentMonth();
   $("#okrPeriodTo").value = period?.period_to || currentMonth();
+  $("#deleteOkrBtn").classList.toggle("hidden", !period?.id);
   renderOkrObjectiveEditors(period?.objectives?.length ? period.objectives : [blankOkrObjective()]);
   $("#okrModal").classList.remove("hidden");
 }
@@ -1694,6 +1695,23 @@ $("#okrForm").addEventListener("submit", async (event) => {
     renderOkrs();
     closeOkrModal();
     toast("OKRs guardados");
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+$("#deleteOkrBtn").addEventListener("click", async () => {
+  const okrId = $("#okrId").value;
+  if (!okrId || !window.confirm("¿Borrar este período de OKRs completo?")) return;
+  try {
+    const payload = await api("/api/okrs/delete", {
+      method: "POST",
+      body: JSON.stringify({ id: okrId }),
+    });
+    state.okrs = payload;
+    renderOkrs();
+    closeOkrModal();
+    toast("OKRs borrados");
   } catch (error) {
     toast(error.message);
   }

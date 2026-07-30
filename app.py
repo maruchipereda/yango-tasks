@@ -1833,6 +1833,20 @@ class Handler(BaseHTTPRequestHandler):
                         )
                 return send_json(self, list_okrs(user))
 
+            if parsed.path == "/api/okrs/delete":
+                if user["role"] != "admin":
+                    return send_json(self, {"error": "Solo admin puede gestionar OKRs"}, 403)
+                okr_id = int(body.get("id") or 0)
+                if not okr_id:
+                    return send_json(self, {"error": "OKR no encontrado"}, 404)
+                with db() as con:
+                    existing = con.execute("select id from okr_periods where id = ?", (okr_id,)).fetchone()
+                    if not existing:
+                        return send_json(self, {"error": "OKR no encontrado"}, 404)
+                    con.execute("delete from okr_objectives where okr_id = ?", (okr_id,))
+                    con.execute("delete from okr_periods where id = ?", (okr_id,))
+                return send_json(self, list_okrs(user))
+
             if parsed.path == "/api/categories/save":
                 if not can_manage_admin_data(user):
                     return send_json(self, {"error": "Solo admin puede gestionar categorías"}, 403)
