@@ -1342,6 +1342,45 @@ body.sidebar-collapsed .sidebar-logout {
 .okr-objective-card p {
   margin: 3px 0 0;
   font-weight: 750;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.okr-rich-text {
+  margin-top: 3px;
+  font-weight: 750;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.okr-rich-text p {
+  margin: 0 0 6px;
+  white-space: normal;
+}
+
+.okr-rich-text p:last-child,
+.okr-rich-text ul:last-child,
+.okr-rich-text ol:last-child {
+  margin-bottom: 0;
+}
+
+.okr-rich-text ul,
+.okr-rich-text ol {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 8px 18px;
+  padding: 0;
+}
+
+.okr-rich-text li {
+  padding-left: 2px;
+}
+
+.okr-rich-text strong,
+.okr-rich-text u,
+.okr-rich-text em {
+  color: var(--ink);
 }
 
 .okr-objective-title {
@@ -1385,6 +1424,17 @@ body.sidebar-collapsed .sidebar-logout {
 .okr-kpis strong,
 .okr-kpis span {
   display: block;
+}
+
+.okr-kpis strong {
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.okr-kpi-desc {
+  margin-top: 0;
+  font-weight: 900;
 }
 
 .okr-kpis span {

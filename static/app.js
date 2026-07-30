@@ -46,6 +46,52 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function formatInlineText(value) {
+  return escapeHtml(value)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_]+)__/g, "<u>$1</u>")
+    .replace(/(^|\s)_([^_\n]+)_/g, "$1<em>$2</em>");
+}
+
+function formatRichText(value) {
+  const lines = String(value ?? "").replace(/\r\n/g, "\n").split("\n");
+  let html = "";
+  let listType = "";
+  const closeList = () => {
+    if (listType) html += `</${listType}>`;
+    listType = "";
+  };
+  const openList = (type) => {
+    if (listType === type) return;
+    closeList();
+    listType = type;
+    html += `<${type}>`;
+  };
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      closeList();
+      return;
+    }
+    const bullet = trimmed.match(/^[-*•]\s+(.+)/);
+    const numbered = trimmed.match(/^\d+[.)]\s+(.+)/);
+    if (bullet) {
+      openList("ul");
+      html += `<li>${formatInlineText(bullet[1])}</li>`;
+      return;
+    }
+    if (numbered) {
+      openList("ol");
+      html += `<li>${formatInlineText(numbered[1])}</li>`;
+      return;
+    }
+    closeList();
+    html += `<p>${formatInlineText(trimmed)}</p>`;
+  });
+  closeList();
+  return html || "<p></p>";
+}
+
 function formatDate(value) {
   if (!value) return "Sin fecha";
   const date = new Date(`${value}T00:00:00`);
@@ -1003,26 +1049,26 @@ function renderOkrs() {
               <span>${index + 1}</span>
               <div>
                 <small>Regional priorities</small>
-                <p>${escapeHtml(objective.regional_priorities)}</p>
+                <div class="okr-rich-text">${formatRichText(objective.regional_priorities)}</div>
               </div>
             </div>
             <div class="okr-two-col">
               <div>
                 <small>Key north stars</small>
-                <p>${escapeHtml(objective.key_north_stars)}</p>
+                <div class="okr-rich-text">${formatRichText(objective.key_north_stars)}</div>
               </div>
               <div>
                 <small>KPI owner</small>
-                <p>${escapeHtml(objective.kpi_owner)}</p>
+                <div class="okr-rich-text">${formatRichText(objective.kpi_owner)}</div>
               </div>
             </div>
             <div class="okr-kpis">
-              <div><strong>${escapeHtml(objective.kpi1_description)}</strong><span>${escapeHtml(objective.kpi1_from)} → ${escapeHtml(objective.kpi1_to)}</span></div>
-              <div><strong>${escapeHtml(objective.kpi2_description)}</strong><span>${escapeHtml(objective.kpi2_from)} → ${escapeHtml(objective.kpi2_to)}</span></div>
+              <div><div class="okr-rich-text okr-kpi-desc">${formatRichText(objective.kpi1_description)}</div><span>${escapeHtml(objective.kpi1_from)} → ${escapeHtml(objective.kpi1_to)}</span></div>
+              <div><div class="okr-rich-text okr-kpi-desc">${formatRichText(objective.kpi2_description)}</div><span>${escapeHtml(objective.kpi2_from)} → ${escapeHtml(objective.kpi2_to)}</span></div>
             </div>
             <div>
               <small>Proposed projects</small>
-              <p>${escapeHtml(objective.proposed_projects)}</p>
+              <div class="okr-rich-text">${formatRichText(objective.proposed_projects)}</div>
             </div>
           </article>
         `).join("")}
