@@ -92,6 +92,27 @@ function formatRichText(value) {
   return html || "<p></p>";
 }
 
+function parseNumberValue(value) {
+  const normalized = String(value ?? "").replace(/,/g, "").trim();
+  if (!normalized) return 0;
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function isNumericText(value) {
+  return /^-?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(String(value ?? "").trim());
+}
+
+function formatNumberUS(value) {
+  const raw = String(value ?? "").trim();
+  if (!isNumericText(raw)) return escapeHtml(value ?? "");
+  const decimals = raw.replace(/,/g, "").split(".")[1]?.length || 0;
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(Number(raw.replace(/,/g, "")));
+}
+
 function formatDate(value) {
   if (!value) return "Sin fecha";
   const date = new Date(`${value}T00:00:00`);
@@ -723,8 +744,8 @@ function goalCompletion(goal) {
   if (goal.success_type === "binary") {
     completion = String(goal.fact_value || "").toLowerCase().startsWith("s") ? 100 : 0;
   } else {
-    const target = Number(goal.target_value || 0);
-    const fact = Number(goal.fact_value || 0);
+    const target = parseNumberValue(goal.target_value);
+    const fact = parseNumberValue(goal.fact_value);
     completion = target > 0 ? Math.max(0, Math.min((fact / target) * 100, 100)) : 0;
   }
   return { completion, weighted: completion * weight / 100 };
@@ -750,7 +771,7 @@ function goalFactControl(goal) {
       </select>
     `;
   }
-  return `<input data-goal-fact type="number" min="0" step="0.01" value="${escapeHtml(goal.fact_value || "")}" placeholder="Real" />`;
+  return `<input data-goal-fact type="text" inputmode="decimal" value="${formatNumberUS(goal.fact_value || "")}" placeholder="Real" />`;
 }
 
 function renderGoalMonthSection(monthData, canManage) {
@@ -790,7 +811,7 @@ function renderGoalMonthSection(monthData, canManage) {
           ${rows.map((goal, index) => {
             const calc = goalCompletion(goal);
             const criterion = goal.success_type === "binary" ? "Sí / No" : "Numérico";
-            const target = goal.success_type === "binary" ? "Sí" : goal.target_value;
+            const target = goal.success_type === "binary" ? "Sí" : formatNumberUS(goal.target_value);
             const evidence = goal.evidence_url
               ? `<a href="${escapeHtml(goal.evidence_url)}" target="_blank" rel="noreferrer">Abrir evidencia</a>`
               : "";
@@ -904,7 +925,7 @@ function collectGoalRows() {
     position: index + 1,
     objective: row.querySelector("[data-goal-objective]").value.trim(),
     success_type: row.querySelector("[data-goal-type]").value,
-    target_value: row.querySelector("[data-goal-target]").value,
+    target_value: row.querySelector("[data-goal-target]").value.replace(/,/g, ""),
     weight: row.querySelector("[data-goal-weight]").value,
   }));
 }
@@ -915,7 +936,7 @@ function collectGoalFacts() {
     success_type: row.querySelector("[data-goal-type-value]").value,
     target_value: row.querySelector("[data-goal-target-value]").textContent.trim(),
     weight: row.querySelector("[data-goal-weight-value]").textContent.replace("%", "").trim(),
-    fact_value: row.querySelector("[data-goal-fact]").value,
+    fact_value: row.querySelector("[data-goal-fact]").value.replace(/,/g, ""),
     evidence_url: row.querySelector("[data-goal-evidence]").value.trim(),
   }));
 }
@@ -926,7 +947,7 @@ function factGoalFromRow(row) {
     success_type: row.querySelector("[data-goal-type-value]").value,
     target_value: row.querySelector("[data-goal-target-value]").textContent.trim(),
     weight: row.querySelector("[data-goal-weight-value]").textContent.replace("%", "").trim(),
-    fact_value: row.querySelector("[data-goal-fact]").value,
+    fact_value: row.querySelector("[data-goal-fact]").value.replace(/,/g, ""),
   };
 }
 
@@ -1066,8 +1087,8 @@ function renderOkrs() {
               </div>
             </div>
             <div class="okr-kpis">
-              <div><div class="okr-rich-text okr-kpi-desc">${formatRichText(objective.kpi1_description)}</div><span>${escapeHtml(objective.kpi1_from)} → ${escapeHtml(objective.kpi1_to)}</span></div>
-              <div><div class="okr-rich-text okr-kpi-desc">${formatRichText(objective.kpi2_description)}</div><span>${escapeHtml(objective.kpi2_from)} → ${escapeHtml(objective.kpi2_to)}</span></div>
+              <div><div class="okr-rich-text okr-kpi-desc">${formatRichText(objective.kpi1_description)}</div><span>${formatNumberUS(objective.kpi1_from)} → ${formatNumberUS(objective.kpi1_to)}</span></div>
+              <div><div class="okr-rich-text okr-kpi-desc">${formatRichText(objective.kpi2_description)}</div><span>${formatNumberUS(objective.kpi2_from)} → ${formatNumberUS(objective.kpi2_to)}</span></div>
             </div>
             <div>
               <small>Proposed projects</small>
