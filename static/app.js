@@ -972,10 +972,12 @@ function updateDeleteGoalsButton(hasGoals) {
 async function setGoalsModalMonth(month) {
   const safeMonth = month || currentMonth();
   $("#goalsModalMonth").value = safeMonth;
+  if ($("#goalsOriginalMonth").value) return;
   try {
     const payload = await loadMonthlyGoalsForMonth(safeMonth);
     const hasGoals = Boolean(payload.goals?.length);
     $("#goalsModalTitle").textContent = hasGoals ? "Editar objetivos" : "Crear nuevos objetivos";
+    $("#goalsOriginalMonth").value = hasGoals ? safeMonth : "";
     updateDeleteGoalsButton(hasGoals);
     renderGoalEditor(fourGoalRows(payload.goals || []));
   } catch (error) {
@@ -991,6 +993,7 @@ function openGoalsModal(month = currentMonth(), goals = null) {
   $("#goalsModalTitle").textContent = goals?.length ? "Editar objetivos" : "Crear nuevos objetivos";
   $("#goalsModalSubtitle").textContent = user.name || "Persona";
   $("#goalsModalMonth").value = month || currentMonth();
+  $("#goalsOriginalMonth").value = goals?.length ? (month || currentMonth()) : "";
   updateDeleteGoalsButton(Boolean(goals?.length));
   renderGoalEditor(fourGoalRows(goals || []));
   $("#goalsModal").classList.remove("hidden");
@@ -1633,6 +1636,7 @@ $("#goalsForm").addEventListener("submit", async (event) => {
       body: JSON.stringify({
         user_id: $("#goalsUser").value,
         month: $("#goalsModalMonth").value,
+        original_month: $("#goalsOriginalMonth").value,
         goals: collectGoalRows(),
       }),
     });
@@ -1651,7 +1655,7 @@ $("#deleteGoalsBtn").addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({
         user_id: $("#goalsUser").value,
-        month: $("#goalsModalMonth").value,
+        month: $("#goalsOriginalMonth").value || $("#goalsModalMonth").value,
       }),
     });
     closeGoalsModal();

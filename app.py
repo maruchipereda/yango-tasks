@@ -1687,6 +1687,8 @@ class Handler(BaseHTTPRequestHandler):
 
             if parsed.path == "/api/monthly-goals/save":
                 month = normalize_month(body.get("month"))
+                original_month_value = clean_text(body.get("original_month"))
+                original_month = normalize_month(original_month_value) if original_month_value else month
                 user_id = int(body.get("user_id") or 0)
                 goals = validate_monthly_goal_rows(body.get("goals"))
                 timestamp = now_iso()
@@ -1694,12 +1696,23 @@ class Handler(BaseHTTPRequestHandler):
                     target_user = visible_goal_user(con, user, user_id)
                     if not target_user or not can_manage_monthly_goals(user, target_user):
                         return send_json(self, {"error": "No autorizado para gestionar goals de esta persona"}, 403)
+                    if original_month != month:
+                        existing_target = con.execute(
+                            """
+                            select count(*) as count
+                            from monthly_goals
+                            where user_id = ? and month = ?
+                            """,
+                            (user_id, month),
+                        ).fetchone()["count"]
+                        if existing_target:
+                            return send_json(self, {"error": "Ya hay objetivos cargados para ese mes"}, 400)
                     kept_ids = []
                     for goal in goals:
                         if goal["id"]:
                             existing = con.execute(
-                                "select * from monthly_goals where id = ? and user_id = ? and month = ?",
-                                (goal["id"], user_id, month),
+                                "select * from monthly_goals where id = ? and user_id = ?",
+                                (goal["id"], user_id),
                             ).fetchone()
                         else:
                             existing = None
@@ -1707,10 +1720,10 @@ class Handler(BaseHTTPRequestHandler):
                             con.execute(
                                 """
                                 update monthly_goals
-                                set position = ?, objective = ?, success_type = ?, target_value = ?, weight = ?, updated_at = ?
+                                set month = ?, position = ?, objective = ?, success_type = ?, target_value = ?, weight = ?, updated_at = ?
                                 where id = ?
                                 """,
-                                (goal["position"], goal["objective"], goal["success_type"], goal["target_value"], goal["weight"], timestamp, goal["id"]),
+                                (month, goal["position"], goal["objective"], goal["success_type"], goal["target_value"], goal["weight"], timestamp, goal["id"]),
                             )
                             kept_ids.append(goal["id"])
                         else:
@@ -1727,8 +1740,13 @@ class Handler(BaseHTTPRequestHandler):
                     placeholders = ",".join("?" for _ in kept_ids)
                     con.execute(
                         f"delete from monthly_goals where user_id = ? and month = ? and id not in ({placeholders})",
-                        [user_id, month, *kept_ids],
+                        [user_id, original_month, *kept_ids],
                     )
+                    if original_month != month:
+                        con.execute(
+                            f"delete from monthly_goals where user_id = ? and month = ? and id not in ({placeholders})",
+                            [user_id, month, *kept_ids],
+                        )
                 return send_json(self, list_monthly_goals_for(user, {"user_id": [str(user_id)], "month": [month]}))
 
             if parsed.path == "/api/monthly-goals/delete":
