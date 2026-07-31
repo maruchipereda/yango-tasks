@@ -1399,6 +1399,8 @@ class Handler(BaseHTTPRequestHandler):
             return send_file(self, STATIC_DIR / "styles.css", "text/css; charset=utf-8")
         if parsed.path == "/static/app.js":
             return send_file(self, STATIC_DIR / "app.js", "application/javascript; charset=utf-8")
+        if parsed.path in ("/favicon.svg", "/static/favicon.svg"):
+            return send_file(self, STATIC_DIR / "favicon.svg", "image/svg+xml")
         if parsed.path.startswith("/uploads/"):
             user = require_user(self)
             if user is None:
