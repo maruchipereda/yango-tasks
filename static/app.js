@@ -601,15 +601,20 @@ function renderMine() {
 
 function renderTeam() {
   const tasks = state.tasks;
-  const people = [...new Set(tasks.flatMap((task) => task.assigned_user_ids || [task.assigned_user_id]))];
+  const selectedAssignees = new Set(selectedValues($("#teamAssigneeFilter")).map((id) => Number(id)));
+  const taskAssigneeIds = (task) => (task.assigned_user_ids || [task.assigned_user_id]).map((id) => Number(id));
+  const visibleUsers = state.users.filter((user) => {
+    const userId = Number(user.id);
+    const hasTask = tasks.some((task) => taskAssigneeIds(task).includes(userId));
+    return hasTask && (!selectedAssignees.size || selectedAssignees.has(userId));
+  });
   $("#metricTeamOpen").textContent = tasks.filter((task) => !isDoneStatus(task.status)).length;
   $("#metricTeamHelp").textContent = tasks.filter((task) => task.status === "needs_help").length;
-  $("#metricTeamPeople").textContent = people.length;
+  $("#metricTeamPeople").textContent = visibleUsers.length;
   $("#metricTeamDone").textContent = tasks.filter((task) => isDoneStatus(task.status)).length;
-  const grouped = state.users
-    .filter((user) => tasks.some((task) => (task.assigned_user_ids || [task.assigned_user_id]).some((id) => Number(id) === Number(user.id))))
+  const grouped = visibleUsers
     .map((user) => {
-      const owned = tasks.filter((task) => (task.assigned_user_ids || [task.assigned_user_id]).some((id) => Number(id) === Number(user.id)));
+      const owned = tasks.filter((task) => taskAssigneeIds(task).includes(Number(user.id)));
       return `
         <section class="person-panel">
           <div class="person-head">
