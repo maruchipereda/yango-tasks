@@ -475,6 +475,21 @@ function setView(view) {
   if (view === "mine" || view === "team") loadTasks().catch((error) => toast(error.message));
 }
 
+function normalizeRelatedLink(link) {
+  if (link && typeof link === "object") {
+    return {
+      url: String(link.url || link.href || "").trim(),
+      label: String(link.label || link.name || link.title || "").trim(),
+    };
+  }
+  return { url: String(link || "").trim(), label: "" };
+}
+
+function taskRelatedLinks(task) {
+  const links = task?.related_links?.length ? task.related_links : (task?.related_link ? [task.related_link] : []);
+  return links.map(normalizeRelatedLink).filter((link) => link.url);
+}
+
 function taskCard(task) {
   const overdue = isOverdue(task.due_date, task.status);
   const soon = isSoon(task.due_date) && !overdue && !isDoneStatus(task.status);
@@ -505,8 +520,8 @@ function taskCard(task) {
         </select>
       </div>
       <div class="task-links">
-        ${(task.related_links || (task.related_link ? [task.related_link] : [])).map((link, index) => `
-          <a href="${escapeHtml(link)}" target="_blank" rel="noreferrer">Ticket o Archivo ${index + 1}</a>
+        ${taskRelatedLinks(task).map((link, index) => `
+          <a href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.label || `Ticket o Archivo ${index + 1}`)}</a>
         `).join("")}
         ${task.attachment_url ? `<a href="${escapeHtml(task.attachment_url + tokenQuery)}" target="_blank" rel="noreferrer">${escapeHtml(task.attachment_name || "Archivo")}</a>` : ""}
       </div>
@@ -1230,10 +1245,12 @@ function checklistFromEditor() {
 }
 
 function relatedLinkEditorItem(value = "") {
+  const link = normalizeRelatedLink(value);
   const wrap = document.createElement("div");
   wrap.className = "related-link-line";
   wrap.innerHTML = `
-    <input type="url" value="${escapeHtml(value)}" placeholder="https://" data-related-link />
+    <input type="text" value="${escapeHtml(link.label)}" placeholder="Referencia" maxlength="80" data-related-link-label />
+    <input type="url" value="${escapeHtml(link.url)}" placeholder="https://" data-related-link />
     <button class="icon-action danger-action" type="button" data-remove-related-link>Quitar</button>
   `;
   return wrap;
@@ -1247,9 +1264,12 @@ function renderRelatedLinksEditor(links = []) {
 }
 
 function relatedLinksFromEditor() {
-  return [...document.querySelectorAll("[data-related-link]")]
-    .map((input) => input.value.trim())
-    .filter(Boolean);
+  return [...$("#taskRelatedLinks").querySelectorAll(".related-link-line")]
+    .map((row) => ({
+      label: row.querySelector("[data-related-link-label]").value.trim(),
+      url: row.querySelector("[data-related-link]").value.trim(),
+    }))
+    .filter((link) => link.url);
 }
 
 function syncRecurrenceFields({ fillDefault = true } = {}) {
@@ -1276,7 +1296,7 @@ function openTask(task = null) {
   $("#taskStatus").innerHTML = statusOptions(task?.status || "todo");
   $("#taskPriority").value = task?.priority || "media";
   $("#taskDueDate").value = task?.due_date || "";
-  renderRelatedLinksEditor(task?.related_links || (task?.related_link ? [task.related_link] : []));
+  renderRelatedLinksEditor(taskRelatedLinks(task || {}));
   $("#taskRecurrence").value = task?.recurrence_interval || "";
   $("#taskRecurrenceNext").value = task?.recurrence_next_date || "";
   syncRecurrenceFields({ fillDefault: false });

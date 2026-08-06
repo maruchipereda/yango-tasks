@@ -352,10 +352,17 @@ def normalize_related_links(value):
     else:
         raw_links = []
     links = []
+    seen = set()
     for item in raw_links:
-        link = clean_text(item.get("url") or item.get("href")) if isinstance(item, dict) else clean_text(item)
-        if link and link not in links:
-            links.append(link[:500])
+        if isinstance(item, dict):
+            link = clean_text(item.get("url") or item.get("href"))
+            label = clean_text(item.get("label") or item.get("name") or item.get("title") or item.get("reference"))
+        else:
+            link = clean_text(item)
+            label = ""
+        if link and link not in seen:
+            links.append({"url": link[:500], "label": label[:80]})
+            seen.add(link)
     return links[:12]
 
 
@@ -402,7 +409,7 @@ def public_task(row):
     if not related_links and data.get("related_link"):
         related_links = normalize_related_links(data.get("related_link"))
     data["related_links"] = related_links
-    data["related_link"] = related_links[0] if related_links else clean_text(data.get("related_link"))
+    data["related_link"] = related_links[0]["url"] if related_links else clean_text(data.get("related_link"))
     data["attachment_url"] = "/" + data["attachment_path"] if data.get("attachment_path") else ""
     return data
 
@@ -1493,7 +1500,7 @@ class Handler(BaseHTTPRequestHandler):
                         item.get("status_label") or item["status"],
                         item["priority"],
                         item.get("due_date") or "",
-                        " | ".join(item.get("related_links") or ([item.get("related_link")] if item.get("related_link") else [])),
+                        " | ".join(link.get("url", "") if isinstance(link, dict) else str(link) for link in (item.get("related_links") or ([item.get("related_link")] if item.get("related_link") else []))),
                         item["updated_at"],
                     ]
                 )
@@ -1543,7 +1550,7 @@ class Handler(BaseHTTPRequestHandler):
                 related_links = normalize_related_links(body.get("related_links"))
                 if not related_links and clean_text(body.get("related_link")):
                     related_links = normalize_related_links(body.get("related_link"))
-                related_link = related_links[0] if related_links else ""
+                related_link = related_links[0]["url"] if related_links else ""
                 related_links_json = json.dumps(related_links, ensure_ascii=False)
                 recurrence_interval, recurrence_next_date = normalize_recurrence(body)
                 timestamp = now_iso()

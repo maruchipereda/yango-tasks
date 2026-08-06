@@ -1594,7 +1594,7 @@ body.sidebar-collapsed .sidebar-logout {
 
 .related-link-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(140px, 0.35fr) minmax(220px, 1fr) auto;
   gap: 8px;
 }
 
