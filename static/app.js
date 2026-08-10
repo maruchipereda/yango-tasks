@@ -212,7 +212,12 @@ async function readFile(input) {
 function allStatuses() {
   return (state.statuses.length ? state.statuses : FALLBACK_STATUSES)
     .slice()
-    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.label).localeCompare(String(b.label)));
+    .sort((a, b) => {
+      const aDone = Boolean(a.is_done) || a.key === "done";
+      const bDone = Boolean(b.is_done) || b.key === "done";
+      if (aDone !== bDone) return aDone ? 1 : -1;
+      return Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.label).localeCompare(String(b.label));
+    });
 }
 
 function activeStatuses(selected = "") {
@@ -290,6 +295,20 @@ function statusOptionsList(selectedValues = []) {
   return allStatuses()
     .filter((status) => status.active || selected.has(String(status.key)))
     .map((status) => ({ value: status.key, label: status.label }));
+}
+
+function defaultStatusFilterValues() {
+  return activeStatuses()
+    .filter((status) => !isDoneStatus(status.key))
+    .map((status) => status.key);
+}
+
+function ensureDefaultStatusFilter(id) {
+  const node = $(`#${id}`);
+  if (!node.dataset.initialized) {
+    node.dataset.values = defaultStatusFilterValues().join(",");
+    node.dataset.initialized = "true";
+  }
 }
 
 function assigneeOptionsList() {
@@ -429,6 +448,8 @@ async function bootstrap() {
 }
 
 function hydrateControls() {
+  ensureDefaultStatusFilter("mineStatusFilter");
+  ensureDefaultStatusFilter("teamStatusFilter");
   renderFilterMenus();
   $("#mineCategoryFilter").innerHTML = filterCategoryOptions();
   $("#teamCategoryFilter").innerHTML = filterCategoryOptions();
