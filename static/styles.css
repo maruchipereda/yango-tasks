@@ -736,31 +736,30 @@ body.sidebar-collapsed .sidebar-logout {
   overflow-wrap: anywhere;
 }
 
-.task-link-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  min-width: 0;
-}
-
-.task-link-item a {
-  min-width: 0;
-}
-
 .copy-link-button {
-  min-height: 24px;
-  padding: 3px 7px;
-  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: 7px;
   background: #eeeeea;
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 900;
 }
 
 .copy-link-button:hover {
   background: #deded5;
   color: var(--ink);
+}
+
+.copy-link-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .recurrence-pill {
@@ -1621,7 +1620,7 @@ body.sidebar-collapsed .sidebar-logout {
 
 .related-link-line {
   display: grid;
-  grid-template-columns: minmax(140px, 0.35fr) minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(140px, 0.35fr) minmax(220px, 1fr) auto auto;
   gap: 8px;
 }
 

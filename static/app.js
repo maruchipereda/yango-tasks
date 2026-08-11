@@ -560,10 +560,7 @@ function taskCard(task) {
       </div>
       <div class="task-links">
         ${taskRelatedLinks(task).map((link, index) => `
-          <span class="task-link-item">
-            <a href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.label || `Ticket o Archivo ${index + 1}`)}</a>
-            <button class="copy-link-button" type="button" data-copy-link="${escapeHtml(link.url)}" aria-label="Copiar link">Copiar</button>
-          </span>
+          <a href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.label || `Ticket o Archivo ${index + 1}`)}</a>
         `).join("")}
         ${task.attachment_url ? `<a href="${escapeHtml(task.attachment_url + tokenQuery)}" target="_blank" rel="noreferrer">${escapeHtml(task.attachment_name || "Archivo")}</a>` : ""}
       </div>
@@ -1293,6 +1290,12 @@ function relatedLinkEditorItem(value = "") {
   wrap.innerHTML = `
     <input type="text" value="${escapeHtml(link.label)}" placeholder="Referencia" maxlength="80" data-related-link-label />
     <input type="url" value="${escapeHtml(link.url)}" placeholder="https://" data-related-link />
+    <button class="copy-link-button" type="button" data-copy-related-link aria-label="Copiar link">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="9" y="9" width="10" height="10" rx="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"></path>
+      </svg>
+    </button>
     <button class="icon-action danger-action" type="button" data-remove-related-link>Quitar</button>
   `;
   return wrap;
@@ -1483,11 +1486,16 @@ document.addEventListener("click", async (event) => {
   const editTask = event.target.closest("[data-edit-task]");
   if (editTask) openTask(state.tasks.find((task) => Number(task.id) === Number(editTask.dataset.editTask)));
 
-  const copyLink = event.target.closest("[data-copy-link]");
-  if (copyLink) {
+  const copyRelatedLink = event.target.closest("[data-copy-related-link]");
+  if (copyRelatedLink) {
+    const linkInput = copyRelatedLink.closest(".related-link-line")?.querySelector("[data-related-link]");
     try {
-      await copyTextToClipboard(copyLink.dataset.copyLink);
-      toast("Link copiado");
+      if (!linkInput?.value.trim()) {
+        toast("No hay link para copiar");
+      } else {
+        await copyTextToClipboard(linkInput.value.trim());
+        toast("Link copiado");
+      }
     } catch (error) {
       toast("No se pudo copiar el link");
     }
