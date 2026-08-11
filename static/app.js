@@ -511,6 +511,24 @@ function taskRelatedLinks(task) {
   return links.map(normalizeRelatedLink).filter((link) => link.url);
 }
 
+async function copyTextToClipboard(value) {
+  const text = String(value || "");
+  if (!text) return;
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+
 function taskCard(task) {
   const overdue = isOverdue(task.due_date, task.status);
   const soon = isSoon(task.due_date) && !overdue && !isDoneStatus(task.status);
@@ -542,7 +560,10 @@ function taskCard(task) {
       </div>
       <div class="task-links">
         ${taskRelatedLinks(task).map((link, index) => `
-          <a href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.label || `Ticket o Archivo ${index + 1}`)}</a>
+          <span class="task-link-item">
+            <a href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.label || `Ticket o Archivo ${index + 1}`)}</a>
+            <button class="copy-link-button" type="button" data-copy-link="${escapeHtml(link.url)}" aria-label="Copiar link">Copiar</button>
+          </span>
         `).join("")}
         ${task.attachment_url ? `<a href="${escapeHtml(task.attachment_url + tokenQuery)}" target="_blank" rel="noreferrer">${escapeHtml(task.attachment_name || "Archivo")}</a>` : ""}
       </div>
@@ -1461,6 +1482,16 @@ document.addEventListener("click", async (event) => {
 
   const editTask = event.target.closest("[data-edit-task]");
   if (editTask) openTask(state.tasks.find((task) => Number(task.id) === Number(editTask.dataset.editTask)));
+
+  const copyLink = event.target.closest("[data-copy-link]");
+  if (copyLink) {
+    try {
+      await copyTextToClipboard(copyLink.dataset.copyLink);
+      toast("Link copiado");
+    } catch (error) {
+      toast("No se pudo copiar el link");
+    }
+  }
 
   const notesMode = event.target.closest("[data-notes-mode]");
   if (notesMode) setNotesMode(notesMode.dataset.notesMode);

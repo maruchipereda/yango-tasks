@@ -736,6 +736,33 @@ body.sidebar-collapsed .sidebar-logout {
   overflow-wrap: anywhere;
 }
 
+.task-link-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.task-link-item a {
+  min-width: 0;
+}
+
+.copy-link-button {
+  min-height: 24px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #eeeeea;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.copy-link-button:hover {
+  background: #deded5;
+  color: var(--ink);
+}
+
 .recurrence-pill {
   width: fit-content;
   border-radius: 999px;
