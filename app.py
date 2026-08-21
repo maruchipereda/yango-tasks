@@ -30,6 +30,8 @@ DEFAULT_STATUSES = [
     ("done", "Done", "#0a8f5a", 90, 1, 1),
 ]
 SYSTEM_STATUS_KEYS = {"todo", "done"}
+MANAGER_ROLES = {"manager", "area_manager"}
+USER_ROLES = {"admin", "manager", "area_manager", "colaborador"}
 
 
 def now_iso():
@@ -192,12 +194,12 @@ def auth_context(handler):
         return None
     with db() as con:
         row = con.execute(
-            "select id, name, email, role, team, active from users where id = ?",
+            "select id, name, email, role, team, active, can_view_okrs from users where id = ?",
             (session["user_id"],),
         ).fetchone()
     if not row or not row["active"]:
         return None
-    return row_to_dict(row)
+    return public_user(row)
 
 
 def require_user(handler):
@@ -212,10 +214,22 @@ def can_manage_admin_data(user):
     return user["role"] == "admin"
 
 
+def is_manager_role(user):
+    return user["role"] in MANAGER_ROLES
+
+
+def can_manage_taxonomy(user):
+    return user["role"] in {"admin", "area_manager"}
+
+
+def can_view_okrs(user):
+    return user["role"] == "admin" or bool(user.get("can_view_okrs", 1))
+
+
 def visible_user_where(user):
     if user["role"] == "admin":
         return "", []
-    if user["role"] == "manager":
+    if is_manager_role(user):
         return "where team = ? and active = 1", [user["team"]]
     return "where id = ? and active = 1", [user["id"]]
 
@@ -225,7 +239,7 @@ def can_view_task(user, task):
         return True
     assignee_ids = task_assignee_ids(task)
     assignee_teams = task_assignee_teams(task)
-    if user["role"] == "manager":
+    if is_manager_role(user):
         return user["team"] in assignee_teams
     return int(user["id"]) in assignee_ids
 
@@ -235,7 +249,7 @@ def can_edit_task(user, task):
         return True
     assignee_ids = task_assignee_ids(task)
     assignee_teams = task_assignee_teams(task)
-    if user["role"] == "manager":
+    if is_manager_role(user):
         return user["team"] in assignee_teams
     return int(user["id"]) in assignee_ids
 
@@ -264,6 +278,7 @@ def public_user(row):
     if not data:
         return None
     data.pop("password_hash", None)
+    data["can_view_okrs"] = bool(data.get("can_view_okrs", 1))
     return data
 
 
@@ -473,13 +488,15 @@ def user_workload_for(user):
         used_statuses = sorted({row["status"] for row in count_rows if row.get("status")})
         status_params = list(used_statuses)
         status_clause = "or key in ({})".format(",".join("?" for _ in used_statuses)) if used_statuses else ""
+        scope_clause, scope_params = taxonomy_team_clause(user, include_global=user["role"] != "area_manager", include_system=True)
+        status_params.extend(scope_params)
         statuses = [
             public_status(row)
             for row in con.execute(
                 f"""
                 select *
                 from statuses
-                where is_done = 0 and (active = 1 {status_clause})
+                where is_done = 0 and (active = 1 {status_clause}){scope_clause}
                 order by sort_order, label collate nocase
                 """,
                 status_params,
@@ -528,13 +545,13 @@ def public_monthly_goal(row):
 
 
 def visible_goal_user(con, current_user, user_id):
-    row = con.execute("select id, name, email, role, team, active from users where id = ? and active = 1", (user_id,)).fetchone()
+    row = con.execute("select id, name, email, role, team, active, can_view_okrs from users where id = ? and active = 1", (user_id,)).fetchone()
     if not row:
         return None
     target = row_to_dict(row)
     if current_user["role"] == "admin":
         return target
-    if current_user["role"] == "manager" and target["team"] == current_user["team"]:
+    if is_manager_role(current_user) and target["team"] == current_user["team"]:
         return target
     if int(target["id"]) == int(current_user["id"]):
         return target
@@ -544,7 +561,7 @@ def visible_goal_user(con, current_user, user_id):
 def can_manage_monthly_goals(current_user, target_user):
     if current_user["role"] == "admin":
         return True
-    return current_user["role"] == "manager" and target_user["team"] == current_user["team"]
+    return is_manager_role(current_user) and target_user["team"] == current_user["team"]
 
 
 def list_monthly_goals_for(user, query):
@@ -609,22 +626,47 @@ def public_okr_period(row, objectives):
     return data
 
 
+def can_manage_okrs(user):
+    return user["role"] == "admin" or (user["role"] == "area_manager" and can_view_okrs(user))
+
+
+def okr_scope_clause(user, alias="okr_periods"):
+    if user["role"] == "admin":
+        return "", []
+    return f"where {alias}.team = ?", [user["team"]]
+
+
+def can_touch_okr_period(user, period):
+    if user["role"] == "admin":
+        return True
+    return user["role"] == "area_manager" and period["team"] == user["team"]
+
+
 def list_okrs(user):
+    where, params = okr_scope_clause(user)
     with db() as con:
         period_rows = con.execute(
-            """
+            f"""
             select okr_periods.*, users.name as created_by_name
             from okr_periods
             left join users on users.id = okr_periods.created_by
+            {where}
             order by okr_periods.period_from desc, okr_periods.period_to desc, okr_periods.id desc
-            """
+            """,
+            params,
         ).fetchall()
+        period_ids = [row["id"] for row in period_rows]
+        if not period_ids:
+            return {"periods": [], "can_manage": can_manage_okrs(user)}
+        placeholders = ",".join("?" for _ in period_ids)
         objective_rows = con.execute(
-            """
+            f"""
             select *
             from okr_objectives
+            where okr_id in ({placeholders})
             order by okr_id, position, id
-            """
+            """,
+            period_ids,
         ).fetchall()
     objectives_by_period = {}
     for row in objective_rows:
@@ -634,14 +676,16 @@ def list_okrs(user):
         public_okr_period(row, objectives_by_period.get(row["id"], []))
         for row in period_rows
     ]
-    return {"periods": periods, "can_manage": user["role"] == "admin"}
+    return {"periods": periods, "can_manage": can_manage_okrs(user)}
 
 
-def list_categories():
+def list_categories(user=None):
+    scope_clause, scope_params = taxonomy_team_clause(user, include_global=user is None or user.get("role") != "area_manager")
+    where = f"where 1 = 1{scope_clause}" if scope_clause else ""
     with db() as con:
         return [
             row_to_dict(row)
-            for row in con.execute("select * from categories order by active desc, name collate nocase")
+            for row in con.execute(f"select * from categories {where} order by active desc, name collate nocase", scope_params)
         ]
 
 
@@ -655,19 +699,64 @@ def public_status(row):
     return data
 
 
-def list_statuses():
+def taxonomy_owner_team(user):
+    return user["team"] if user["role"] == "area_manager" else None
+
+
+def scoped_category(con, user, category_id):
+    if user["role"] == "admin":
+        return con.execute("select * from categories where id = ?", (category_id,)).fetchone()
+    return con.execute("select * from categories where id = ? and team = ?", (category_id, user["team"])).fetchone()
+
+
+def scoped_status(con, user, status_key):
+    if user["role"] == "admin":
+        return con.execute("select * from statuses where key = ?", (status_key,)).fetchone()
+    return con.execute("select * from statuses where key = ? and team = ?", (status_key, user["team"])).fetchone()
+
+
+def list_statuses(user=None):
+    scope_clause, scope_params = taxonomy_team_clause(user, include_global=user is None or user.get("role") != "area_manager", include_system=True)
+    where = f"where 1 = 1{scope_clause}" if scope_clause else ""
     with db() as con:
         return [
             public_status(row)
-            for row in con.execute("select * from statuses order by sort_order, label collate nocase")
+            for row in con.execute(f"select * from statuses {where} order by sort_order, label collate nocase", scope_params)
         ]
 
 
-def status_keys(con, active_only=False):
-    where = "where active = 1" if active_only else ""
+def taxonomy_team_clause(user, include_global=True, include_system=False, alias=""):
+    if not user or user["role"] == "admin":
+        return "", []
+    prefix = f"{alias}." if alias else ""
+    if user["role"] == "area_manager":
+        clauses = [f"{prefix}team = ?"]
+        params = [user["team"]]
+        if include_system:
+            clauses.append(f"{prefix}system_key = 1")
+        return " and (" + " or ".join(clauses) + ")", params
+    clauses = [f"{prefix}team = ?"]
+    params = [user["team"]]
+    if include_global:
+        clauses.append(f"{prefix}team is null")
+    if include_system:
+        clauses.append(f"{prefix}system_key = 1")
+    return " and (" + " or ".join(clauses) + ")", params
+
+
+def status_keys(con, active_only=False, user=None):
+    where = []
+    params = []
+    if active_only:
+        where.append("active = 1")
+    scope_clause, scope_params = taxonomy_team_clause(user, include_global=True, include_system=True)
+    if scope_clause:
+        where.append(scope_clause[5:])
+        params.extend(scope_params)
+    clause = "where " + " and ".join(where) if where else ""
     return {
         row["key"]
-        for row in con.execute(f"select key from statuses {where}")
+        for row in con.execute(f"select key from statuses {clause}", params)
     }
 
 
@@ -704,7 +793,7 @@ def list_tasks_for(user, query):
 
     params = []
     where = []
-    if user["role"] == "manager":
+    if is_manager_role(user):
         where.append(
             """
             exists (
@@ -721,7 +810,7 @@ def list_tasks_for(user, query):
         params.append(user["id"])
 
     with db() as con:
-        allowed_statuses = status_keys(con)
+        allowed_statuses = status_keys(con, user=user)
     statuses = query_values(query, "status", allowed=allowed_statuses)
     assignees = query_values(query, "assignee", numeric=True)
     category = clean_text(query.get("category", [""])[0])
@@ -818,7 +907,7 @@ def set_task_categories(con, task_id, category_ids):
         )
 
 
-def resolve_categories(con, body):
+def resolve_categories(con, body, current_user):
     raw_ids = body.get("category_ids")
     if raw_ids is None:
         legacy = clean_text(body.get("category_id"))
@@ -832,9 +921,10 @@ def resolve_categories(con, body):
     if not category_ids:
         return []
     placeholders = ",".join("?" for _ in category_ids)
+    scope_clause, scope_params = taxonomy_team_clause(current_user, include_global=current_user["role"] != "area_manager")
     rows = con.execute(
-        f"select id from categories where id in ({placeholders})",
-        category_ids,
+        f"select id from categories where id in ({placeholders}){scope_clause}",
+        [*category_ids, *scope_params],
     ).fetchall()
     found = {int(row["id"]) for row in rows}
     return [category_id for category_id in category_ids if category_id in found]
@@ -872,7 +962,7 @@ def resolve_assignees(con, body, current_user, task_id=0):
     ]
     if len(assignees) != len(assignee_ids):
         raise ValueError("Responsable no encontrado")
-    if current_user["role"] == "manager" and any(item["team"] != current_user["team"] for item in assignees):
+    if is_manager_role(current_user) and any(item["team"] != current_user["team"] for item in assignees):
         raise ValueError("Todos los responsables deben pertenecer a tu equipo")
     return assignee_ids
 
@@ -886,6 +976,83 @@ def migrate_task_assignees(con):
         where assigned_user_id is not null
         """
     )
+
+
+def users_table_sql():
+    return """
+        create table if not exists users (
+            id integer primary key autoincrement,
+            name text not null,
+            email text not null unique,
+            role text not null check (role in ('admin', 'manager', 'area_manager', 'colaborador')),
+            team text not null default 'Operaciones',
+            password_hash text not null,
+            active integer not null default 1,
+            can_view_okrs integer not null default 1,
+            created_at text not null,
+            updated_at text not null
+        )
+    """
+
+
+def ensure_users_role_flexible(con):
+    row = con.execute("select sql from sqlite_master where type = 'table' and name = 'users'").fetchone()
+    sql = row["sql"] if row else ""
+    if "area_manager" in (sql or ""):
+        return
+    existing_columns = {item["name"] for item in con.execute("pragma table_info(users)")}
+    con.execute("alter table users rename to users_role_backup")
+    con.execute(users_table_sql())
+    columns = ["id", "name", "email", "role", "team", "password_hash", "active"]
+    if "can_view_okrs" in existing_columns:
+        columns.append("can_view_okrs")
+    columns.extend(["created_at", "updated_at"])
+    joined = ", ".join(columns)
+    con.execute(f"insert into users ({joined}) select {joined} from users_role_backup")
+    con.execute("drop table users_role_backup")
+
+
+def ensure_user_columns(con):
+    existing = {row["name"] for row in con.execute("pragma table_info(users)")}
+    if "can_view_okrs" not in existing:
+        con.execute("alter table users add column can_view_okrs integer not null default 1")
+
+
+def ensure_taxonomy_columns(con):
+    category_columns = {row["name"] for row in con.execute("pragma table_info(categories)")}
+    if "team" not in category_columns:
+        con.execute("alter table categories add column team text")
+    status_columns = {row["name"] for row in con.execute("pragma table_info(statuses)")}
+    if "team" not in status_columns:
+        con.execute("alter table statuses add column team text")
+
+
+def categories_table_sql():
+    return """
+        create table if not exists categories (
+            id integer primary key autoincrement,
+            name text not null,
+            color text not null default '#ff1f1f',
+            description text,
+            active integer not null default 1,
+            team text,
+            created_at text not null,
+            updated_at text not null
+        )
+    """
+
+
+def ensure_categories_team_flexible(con):
+    row = con.execute("select sql from sqlite_master where type = 'table' and name = 'categories'").fetchone()
+    sql = row["sql"] if row else ""
+    if "name text not null unique" not in (sql or "").lower():
+        return
+    con.execute("alter table categories rename to categories_unique_backup")
+    con.execute(categories_table_sql())
+    columns = ["id", "name", "color", "description", "active", "team", "created_at", "updated_at"]
+    joined = ", ".join(columns)
+    con.execute(f"insert into categories ({joined}) select {joined} from categories_unique_backup")
+    con.execute("drop table categories_unique_backup")
 
 
 def ensure_task_columns(con):
@@ -946,6 +1113,7 @@ def create_statuses_table(con):
             active integer not null default 1,
             system_key integer not null default 0,
             is_done integer not null default 0,
+            team text,
             created_at text not null,
             updated_at text not null
         )
@@ -1066,6 +1234,7 @@ def create_okr_tables(con):
             id integer primary key autoincrement,
             period_from text not null,
             period_to text not null,
+            team text not null default 'Operaciones',
             created_by integer not null references users(id),
             created_at text not null,
             updated_at text not null
@@ -1091,6 +1260,21 @@ def create_okr_tables(con):
         )
         """
     )
+
+
+def ensure_okr_columns(con):
+    existing = {row["name"] for row in con.execute("pragma table_info(okr_periods)")}
+    if "team" not in existing:
+        con.execute("alter table okr_periods add column team text not null default 'Operaciones'")
+        con.execute(
+            """
+            update okr_periods
+            set team = coalesce(
+                (select users.team from users where users.id = okr_periods.created_by),
+                'Operaciones'
+            )
+            """
+        )
 
 
 def validate_okr_payload(body):
@@ -1337,35 +1521,13 @@ def init_db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     with db() as con:
-        con.execute(
-            """
-            create table if not exists users (
-                id integer primary key autoincrement,
-                name text not null,
-                email text not null unique,
-                role text not null check (role in ('admin', 'manager', 'colaborador')),
-                team text not null default 'Operaciones',
-                password_hash text not null,
-                active integer not null default 1,
-                created_at text not null,
-                updated_at text not null
-            )
-            """
-        )
-        con.execute(
-            """
-            create table if not exists categories (
-                id integer primary key autoincrement,
-                name text not null unique,
-                color text not null default '#ff1f1f',
-                description text,
-                active integer not null default 1,
-                created_at text not null,
-                updated_at text not null
-            )
-            """
-        )
+        con.execute(users_table_sql())
+        ensure_users_role_flexible(con)
+        ensure_user_columns(con)
+        con.execute(categories_table_sql())
         create_statuses_table(con)
+        ensure_taxonomy_columns(con)
+        ensure_categories_team_flexible(con)
         ensure_default_statuses(con)
         con.execute(tasks_table_sql())
         ensure_task_columns(con)
@@ -1374,6 +1536,7 @@ def init_db():
         create_monthly_goals_table(con)
         ensure_monthly_goal_columns(con)
         create_okr_tables(con)
+        ensure_okr_columns(con)
         con.execute(
             """
             create unique index if not exists idx_tasks_recurrence_instance
@@ -1442,8 +1605,8 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "user": user,
                     "users": list_users_for(user),
-                    "categories": list_categories(),
-                    "statuses": list_statuses(),
+                    "categories": list_categories(user),
+                    "statuses": list_statuses(user),
                 },
             )
         if parsed.path == "/api/users":
@@ -1460,12 +1623,12 @@ class Handler(BaseHTTPRequestHandler):
             user = require_user(self)
             if user is None:
                 return
-            return send_json(self, {"categories": list_categories()})
+            return send_json(self, {"categories": list_categories(user)})
         if parsed.path == "/api/statuses":
             user = require_user(self)
             if user is None:
                 return
-            return send_json(self, {"statuses": list_statuses()})
+            return send_json(self, {"statuses": list_statuses(user)})
         if parsed.path == "/api/tasks":
             user = require_user(self)
             if user is None:
@@ -1481,6 +1644,8 @@ class Handler(BaseHTTPRequestHandler):
             user = require_user(self)
             if user is None:
                 return
+            if not can_view_okrs(user):
+                return send_json(self, {"error": "No autorizado"}, 403)
             return send_json(self, list_okrs(user))
         if parsed.path == "/api/export":
             user = require_user(self)
@@ -1556,10 +1721,10 @@ class Handler(BaseHTTPRequestHandler):
                 timestamp = now_iso()
                 with DB_LOCK:
                     with db() as con:
-                        if status not in status_keys(con):
+                        if status not in status_keys(con, user=user):
                             return send_json(self, {"error": "Estado inválido"}, 400)
                         attachment_path, attachment_name, attachment_type = save_upload(body.get("attachment_file"))
-                        category_ids = resolve_categories(con, body)
+                        category_ids = resolve_categories(con, body, user)
                         primary_category_id = category_ids[0] if category_ids else None
                         if task_id:
                             current = get_task(con, task_id)
@@ -1650,7 +1815,7 @@ class Handler(BaseHTTPRequestHandler):
                 status = clean_text(body.get("status"))
                 timestamp = now_iso()
                 with db() as con:
-                    if status not in status_keys(con):
+                    if status not in status_keys(con, user=user):
                         return send_json(self, {"error": "Estado inválido"}, 400)
                     current = get_task(con, task_id)
                     if not current:
@@ -1811,7 +1976,7 @@ class Handler(BaseHTTPRequestHandler):
                 return send_json(self, list_monthly_goals_for(user, query))
 
             if parsed.path == "/api/okrs/save":
-                if user["role"] != "admin":
+                if not can_manage_okrs(user):
                     return send_json(self, {"error": "Solo admin puede gestionar OKRs"}, 403)
                 okr_id, period_from, period_to, objectives = validate_okr_payload(body)
                 timestamp = now_iso()
@@ -1820,18 +1985,21 @@ class Handler(BaseHTTPRequestHandler):
                         existing = con.execute("select * from okr_periods where id = ?", (okr_id,)).fetchone()
                         if not existing:
                             return send_json(self, {"error": "OKR no encontrado"}, 404)
+                        if not can_touch_okr_period(user, row_to_dict(existing)):
+                            return send_json(self, {"error": "No autorizado"}, 403)
                         con.execute(
                             "update okr_periods set period_from = ?, period_to = ?, updated_at = ? where id = ?",
                             (period_from, period_to, timestamp, okr_id),
                         )
                         con.execute("delete from okr_objectives where okr_id = ?", (okr_id,))
                     else:
+                        team = user["team"]
                         okr_id = con.execute(
                             """
-                            insert into okr_periods (period_from, period_to, created_by, created_at, updated_at)
-                            values (?, ?, ?, ?, ?)
+                            insert into okr_periods (period_from, period_to, team, created_by, created_at, updated_at)
+                            values (?, ?, ?, ?, ?, ?)
                             """,
-                            (period_from, period_to, user["id"], timestamp, timestamp),
+                            (period_from, period_to, team, user["id"], timestamp, timestamp),
                         ).lastrowid
                     for objective in objectives:
                         con.execute(
@@ -1861,21 +2029,23 @@ class Handler(BaseHTTPRequestHandler):
                 return send_json(self, list_okrs(user))
 
             if parsed.path == "/api/okrs/delete":
-                if user["role"] != "admin":
+                if not can_manage_okrs(user):
                     return send_json(self, {"error": "Solo admin puede gestionar OKRs"}, 403)
                 okr_id = int(body.get("id") or 0)
                 if not okr_id:
                     return send_json(self, {"error": "OKR no encontrado"}, 404)
                 with db() as con:
-                    existing = con.execute("select id from okr_periods where id = ?", (okr_id,)).fetchone()
+                    existing = con.execute("select * from okr_periods where id = ?", (okr_id,)).fetchone()
                     if not existing:
                         return send_json(self, {"error": "OKR no encontrado"}, 404)
+                    if not can_touch_okr_period(user, row_to_dict(existing)):
+                        return send_json(self, {"error": "No autorizado"}, 403)
                     con.execute("delete from okr_objectives where okr_id = ?", (okr_id,))
                     con.execute("delete from okr_periods where id = ?", (okr_id,))
                 return send_json(self, list_okrs(user))
 
             if parsed.path == "/api/categories/save":
-                if not can_manage_admin_data(user):
+                if not can_manage_taxonomy(user):
                     return send_json(self, {"error": "Solo admin puede gestionar categorías"}, 403)
                 category_id = int(body.get("id") or 0)
                 name = clean_text(body.get("name"))
@@ -1883,24 +2053,31 @@ class Handler(BaseHTTPRequestHandler):
                     return send_json(self, {"error": "El nombre es obligatorio"}, 400)
                 timestamp = now_iso()
                 with db() as con:
+                    team = taxonomy_owner_team(user)
                     if category_id:
+                        current = scoped_category(con, user, category_id)
+                        if not current:
+                            return send_json(self, {"error": "Categoría no encontrada"}, 404)
                         con.execute(
                             "update categories set name = ?, color = ?, description = ?, active = ?, updated_at = ? where id = ?",
                             (name, clean_text(body.get("color")) or "#ff1f1f", clean_text(body.get("description")), 1 if body.get("active", True) else 0, timestamp, category_id),
                         )
                     else:
                         category_id = con.execute(
-                            "insert into categories (name, color, description, active, created_at, updated_at) values (?, ?, ?, 1, ?, ?)",
-                            (name, clean_text(body.get("color")) or "#ff1f1f", clean_text(body.get("description")), timestamp, timestamp),
+                            "insert into categories (name, color, description, active, team, created_at, updated_at) values (?, ?, ?, 1, ?, ?, ?)",
+                            (name, clean_text(body.get("color")) or "#ff1f1f", clean_text(body.get("description")), team, timestamp, timestamp),
                         ).lastrowid
                     row = con.execute("select * from categories where id = ?", (category_id,)).fetchone()
                 return send_json(self, {"category": row_to_dict(row)})
 
             if parsed.path == "/api/categories/delete":
-                if not can_manage_admin_data(user):
+                if not can_manage_taxonomy(user):
                     return send_json(self, {"error": "Solo admin puede gestionar categorías"}, 403)
                 category_id = int(body.get("id") or 0)
                 with db() as con:
+                    current = scoped_category(con, user, category_id)
+                    if not current:
+                        return send_json(self, {"error": "Categoría no encontrada"}, 404)
                     used = con.execute(
                         """
                         select count(distinct tasks.id) as count
@@ -1916,7 +2093,7 @@ class Handler(BaseHTTPRequestHandler):
                 return send_json(self, {"ok": True})
 
             if parsed.path == "/api/statuses/save":
-                if not can_manage_admin_data(user):
+                if not can_manage_taxonomy(user):
                     return send_json(self, {"error": "Solo admin puede gestionar estados"}, 403)
                 status_key = clean_text(body.get("key"))
                 label = clean_text(body.get("label"))
@@ -1927,8 +2104,9 @@ class Handler(BaseHTTPRequestHandler):
                     return send_json(self, {"error": "El nombre del estado es obligatorio"}, 400)
                 timestamp = now_iso()
                 with db() as con:
+                    team = taxonomy_owner_team(user)
                     if status_key:
-                        current = con.execute("select * from statuses where key = ?", (status_key,)).fetchone()
+                        current = scoped_status(con, user, status_key)
                         if not current:
                             return send_json(self, {"error": "Estado no encontrado"}, 404)
                         if status_key in SYSTEM_STATUS_KEYS:
@@ -1948,21 +2126,24 @@ class Handler(BaseHTTPRequestHandler):
                             sort_order = int(max_order) + 10
                         con.execute(
                             """
-                            insert into statuses (key, label, color, sort_order, active, system_key, is_done, created_at, updated_at)
-                            values (?, ?, ?, ?, 1, 0, 0, ?, ?)
+                            insert into statuses (key, label, color, sort_order, active, system_key, is_done, team, created_at, updated_at)
+                            values (?, ?, ?, ?, 1, 0, 0, ?, ?, ?)
                             """,
-                            (status_key, label, color, sort_order, timestamp, timestamp),
+                            (status_key, label, color, sort_order, team, timestamp, timestamp),
                         )
                     row = con.execute("select * from statuses where key = ?", (status_key,)).fetchone()
                 return send_json(self, {"status": public_status(row)})
 
             if parsed.path == "/api/statuses/delete":
-                if not can_manage_admin_data(user):
+                if not can_manage_taxonomy(user):
                     return send_json(self, {"error": "Solo admin puede gestionar estados"}, 403)
                 status_key = clean_text(body.get("key"))
                 if status_key in SYSTEM_STATUS_KEYS:
                     return send_json(self, {"error": "Este estado es base del tablero y no se puede borrar"}, 400)
                 with db() as con:
+                    current = scoped_status(con, user, status_key)
+                    if not current:
+                        return send_json(self, {"error": "Estado no encontrado"}, 404)
                     used = con.execute("select count(*) as count from tasks where status = ?", (status_key,)).fetchone()["count"]
                     if used:
                         return send_json(self, {"error": "No se puede borrar un estado con tareas asociadas. Desactívalo o cambia esas tareas de estado."}, 400)
@@ -1978,32 +2159,34 @@ class Handler(BaseHTTPRequestHandler):
                 role = clean_text(body.get("role")) or "colaborador"
                 team = clean_text(body.get("team")) or "Operaciones"
                 password = body.get("password", "")
+                active = 1 if body.get("active", True) else 0
+                can_view = 1 if role == "admin" or body.get("can_view_okrs", True) else 0
                 if not name or not email:
                     return send_json(self, {"error": "Nombre y email son obligatorios"}, 400)
-                if role not in ("admin", "manager", "colaborador"):
+                if role not in USER_ROLES:
                     return send_json(self, {"error": "Rol inválido"}, 400)
                 timestamp = now_iso()
                 with db() as con:
                     if user_id:
                         if password:
                             con.execute(
-                                "update users set name = ?, email = ?, role = ?, team = ?, active = ?, password_hash = ?, updated_at = ? where id = ?",
-                                (name, email, role, team, 1 if body.get("active", True) else 0, hash_password(password), timestamp, user_id),
+                                "update users set name = ?, email = ?, role = ?, team = ?, active = ?, can_view_okrs = ?, password_hash = ?, updated_at = ? where id = ?",
+                                (name, email, role, team, active, can_view, hash_password(password), timestamp, user_id),
                             )
                         else:
                             con.execute(
-                                "update users set name = ?, email = ?, role = ?, team = ?, active = ?, updated_at = ? where id = ?",
-                                (name, email, role, team, 1 if body.get("active", True) else 0, timestamp, user_id),
+                                "update users set name = ?, email = ?, role = ?, team = ?, active = ?, can_view_okrs = ?, updated_at = ? where id = ?",
+                                (name, email, role, team, active, can_view, timestamp, user_id),
                             )
                     else:
                         if not password:
                             return send_json(self, {"error": "La clave es obligatoria para usuarios nuevos"}, 400)
                         user_id = con.execute(
                             """
-                            insert into users (name, email, role, team, password_hash, active, created_at, updated_at)
-                            values (?, ?, ?, ?, ?, 1, ?, ?)
+                            insert into users (name, email, role, team, password_hash, active, can_view_okrs, created_at, updated_at)
+                            values (?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
-                            (name, email, role, team, hash_password(password), timestamp, timestamp),
+                            (name, email, role, team, hash_password(password), active, can_view, timestamp, timestamp),
                         ).lastrowid
                     row = con.execute("select * from users where id = ?", (user_id,)).fetchone()
                 return send_json(self, {"user": public_user(row)})

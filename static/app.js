@@ -158,11 +158,29 @@ function monthLabel(value) {
 }
 
 function isGoalManager() {
-  return ["admin", "manager"].includes(state.user?.role);
+  return ["admin", "manager", "area_manager"].includes(state.user?.role);
 }
 
 function isOkrManager() {
-  return state.user?.role === "admin";
+  return state.user?.role === "admin" || (state.user?.role === "area_manager" && canViewOkrs());
+}
+
+function canViewOkrs() {
+  return state.user?.role === "admin" || Boolean(state.user?.can_view_okrs);
+}
+
+function canManageTaxonomy() {
+  return ["admin", "area_manager"].includes(state.user?.role);
+}
+
+function roleLabel(role) {
+  const labels = {
+    admin: "Admin",
+    manager: "Manager",
+    area_manager: "Manager de área",
+    colaborador: "Colaborador",
+  };
+  return labels[role] || role || "";
 }
 
 function isSoon(value) {
@@ -462,17 +480,23 @@ function hydrateControls() {
 }
 
 function applyPermissions() {
-  $("#sessionLabel").textContent = `${state.user.name} · ${state.user.role}`;
+  $("#sessionLabel").textContent = `${state.user.name} · ${roleLabel(state.user.role)}`;
   document.body.dataset.role = state.user.role;
   const admin = state.user.role === "admin";
   const collaborator = state.user.role === "colaborador";
   document.querySelectorAll(".admin-only").forEach((node) => node.classList.toggle("hidden", !admin));
   document.querySelector('[data-view="team"]').classList.toggle("hidden", collaborator);
+  document.querySelector('[data-view="categories"]').classList.toggle("hidden", !canManageTaxonomy());
+  document.querySelector('[data-view="okrs"]').classList.toggle("hidden", !canViewOkrs());
 }
 
 function setView(view) {
-  if (state.user?.role === "colaborador" && !["mine", "goals", "okrs"].includes(view)) view = "mine";
-  if (state.user?.role !== "admin" && (view === "categories" || view === "users")) view = "mine";
+  const allowedSoloViews = ["mine", "goals"];
+  if (canViewOkrs()) allowedSoloViews.push("okrs");
+  if (state.user?.role === "colaborador" && !allowedSoloViews.includes(view)) view = "mine";
+  if (view === "okrs" && !canViewOkrs()) view = "mine";
+  if (view === "categories" && !canManageTaxonomy()) view = "mine";
+  if (state.user?.role !== "admin" && view === "users") view = "mine";
   state.activeView = view;
   document.querySelectorAll(".view").forEach((node) => node.classList.toggle("active", node.id === view));
   document.querySelectorAll(".nav-btn").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
@@ -693,7 +717,10 @@ function renderCategories() {
           <p>${escapeHtml(category.description || "")}</p>
         </div>
       </div>
-      <span class="state-pill">${category.active ? "Activa" : "Inactiva"}</span>
+      <div class="pill-row">
+        <span class="state-pill">${category.active ? "Activa" : "Inactiva"}</span>
+        <span class="state-pill">${category.team ? escapeHtml(category.team) : "Global"}</span>
+      </div>
       <div class="card-actions">
         <button type="button" data-edit-category="${category.id}">Editar</button>
         <button class="danger-action" type="button" data-delete-category="${category.id}">Borrar</button>
@@ -716,6 +743,7 @@ function renderStatuses() {
       <div class="pill-row">
         <span class="state-pill">${status.active ? "Activo" : "Inactivo"}</span>
         <span class="state-pill">Orden ${Number(status.sort_order || 0)}</span>
+        <span class="state-pill">${status.team ? escapeHtml(status.team) : "Global"}</span>
         ${status.is_done ? `<span class="state-pill">Cierra tarea</span>` : ""}
       </div>
       <div class="card-actions">
@@ -737,9 +765,10 @@ function renderUsers() {
         </div>
       </div>
       <div class="pill-row">
-        <span class="state-pill">${escapeHtml(user.role)}</span>
+        <span class="state-pill">${escapeHtml(roleLabel(user.role))}</span>
         <span class="state-pill">${escapeHtml(user.team)}</span>
         <span class="state-pill">${user.active ? "Activo" : "Inactivo"}</span>
+        <span class="state-pill">${user.role === "admin" || user.can_view_okrs ? "OKRs visibles" : "OKRs ocultos"}</span>
       </div>
       <div class="card-actions">
         <button type="button" data-edit-user="${user.id}">Editar</button>
@@ -782,7 +811,7 @@ function renderUserWorkload() {
             <tr>
               <th>
                 <span>${escapeHtml(user.name)}</span>
-                <small>${escapeHtml(user.role)} · ${escapeHtml(user.team || "Sin equipo")}</small>
+                <small>${escapeHtml(roleLabel(user.role))} · ${escapeHtml(user.team || "Sin equipo")}</small>
               </th>
               ${statuses.map((status) => {
                 const value = Number(counts[status.key] || 0);
@@ -1122,6 +1151,7 @@ function renderOkrs() {
         <div>
           <small>Período</small>
           <h3>${escapeHtml(okrRangeLabel(period))}</h3>
+          ${period.team ? `<span class="state-pill">${escapeHtml(period.team)}</span>` : ""}
         </div>
         ${canManage ? `<button class="secondary tiny-action" type="button" data-edit-okr="${period.id}">Editar</button>` : ""}
       </div>
@@ -1383,6 +1413,7 @@ function openUser(user = null) {
   $("#userRole").value = user?.role || "colaborador";
   $("#userTeam").value = user?.team || "Operaciones";
   $("#userActive").checked = user ? Boolean(user.active) : true;
+  $("#userCanViewOkrs").checked = user ? Boolean(user.role === "admin" || user.can_view_okrs) : true;
   $("#userModal").classList.remove("hidden");
 }
 
@@ -1393,6 +1424,16 @@ async function refreshBootstrapLists() {
   state.categories = payload.categories;
   state.statuses = payload.statuses || [];
   hydrateControls();
+  applyPermissions();
+  renderSidebar();
+  if (state.activeView === "okrs" && !canViewOkrs()) {
+    setView("mine");
+    return;
+  }
+  if (state.activeView === "categories" && !canManageTaxonomy()) {
+    setView("mine");
+    return;
+  }
   renderCategories();
   renderUsers();
   if (state.activeView === "users") await loadUserWorkload();
@@ -1712,6 +1753,7 @@ $("#userForm").addEventListener("submit", async (event) => {
         team: $("#userTeam").value,
         password: $("#userPassword").value,
         active: $("#userActive").checked,
+        can_view_okrs: $("#userCanViewOkrs").checked,
       }),
     });
     toast("Usuario guardado");
@@ -1720,6 +1762,10 @@ $("#userForm").addEventListener("submit", async (event) => {
   } catch (error) {
     toast(error.message);
   }
+});
+
+$("#userRole").addEventListener("change", () => {
+  if ($("#userRole").value === "admin") $("#userCanViewOkrs").checked = true;
 });
 
 $("#goalsUser").addEventListener("change", () => loadMonthlyGoals().catch((error) => toast(error.message)));

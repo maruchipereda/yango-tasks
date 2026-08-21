@@ -354,6 +354,7 @@
           <select id="userRole">
             <option value="admin">Admin</option>
             <option value="manager">Manager</option>
+            <option value="area_manager">Manager de área</option>
             <option value="colaborador">Colaborador</option>
           </select>
         </label>
@@ -366,6 +367,10 @@
         <label class="check-row">
           <input id="userActive" type="checkbox" checked />
           <span>Activo</span>
+        </label>
+        <label class="check-row">
+          <input id="userCanViewOkrs" type="checkbox" checked />
+          <span>Puede ver OKRs</span>
         </label>
         <div class="actions">
           <button type="submit">Guardar</button>
