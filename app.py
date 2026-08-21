@@ -1140,6 +1140,60 @@ def ensure_default_statuses(con):
         )
 
 
+def ensure_area_statuses(con, team):
+    team = clean_text(team)
+    if not team:
+        return
+    timestamp = now_iso()
+    source_statuses = [
+        row_to_dict(row)
+        for row in con.execute(
+            """
+            select *
+            from statuses
+            where team is null and system_key = 0
+            order by sort_order, label collate nocase
+            """
+        )
+    ]
+    for status in source_statuses:
+        existing = con.execute(
+            "select 1 from statuses where team = ? and label = ?",
+            (team, status["label"]),
+        ).fetchone()
+        if existing:
+            continue
+        status_key = unique_status_key(con, f"{team} {status['key']}")
+        con.execute(
+            """
+            insert into statuses (
+                key, label, color, sort_order, active, system_key, is_done,
+                team, created_at, updated_at
+            ) values (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+            """,
+            (
+                status_key,
+                status["label"],
+                status["color"],
+                status["sort_order"],
+                status["active"],
+                status["is_done"],
+                team,
+                timestamp,
+                timestamp,
+            ),
+        )
+
+
+def ensure_all_area_statuses(con):
+    teams = [
+        clean_text(row["team"])
+        for row in con.execute("select distinct team from users where role = 'area_manager' and active = 1")
+    ]
+    for team in teams:
+        ensure_area_statuses(con, team)
+
+
 def ensure_tasks_status_flexible(con):
     row = con.execute("select sql from sqlite_master where type = 'table' and name = 'tasks'").fetchone()
     if not row or "check (status in" not in (row["sql"] or "").lower():
@@ -1529,6 +1583,7 @@ def init_db():
         ensure_taxonomy_columns(con)
         ensure_categories_team_flexible(con)
         ensure_default_statuses(con)
+        ensure_all_area_statuses(con)
         con.execute(tasks_table_sql())
         ensure_task_columns(con)
         ensure_tasks_status_flexible(con)
@@ -2188,6 +2243,8 @@ class Handler(BaseHTTPRequestHandler):
                             """,
                             (name, email, role, team, hash_password(password), active, can_view, timestamp, timestamp),
                         ).lastrowid
+                    if role == "area_manager":
+                        ensure_area_statuses(con, team)
                     row = con.execute("select * from users where id = ?", (user_id,)).fetchone()
                 return send_json(self, {"user": public_user(row)})
 

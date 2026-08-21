@@ -173,6 +173,10 @@ function canManageTaxonomy() {
   return ["admin", "area_manager"].includes(state.user?.role);
 }
 
+function canManageTaxonomyItem(item) {
+  return state.user?.role === "admin" || Boolean(item?.team);
+}
+
 function roleLabel(role) {
   const labels = {
     admin: "Admin",
@@ -731,27 +735,30 @@ function renderCategories() {
 }
 
 function renderStatuses() {
-  $("#statusGrid").innerHTML = allStatuses().map((status) => `
-    <article class="management-card">
-      <div class="card-line">
-        <span class="category-swatch" style="--dot:${escapeHtml(status.color)}"></span>
-        <div>
-          <h4>${escapeHtml(status.label)}</h4>
-          <p>${status.system_key ? "Estado base" : escapeHtml(status.key)}</p>
+  $("#statusGrid").innerHTML = allStatuses().map((status) => {
+    const canManage = canManageTaxonomyItem(status);
+    return `
+      <article class="management-card">
+        <div class="card-line">
+          <span class="category-swatch" style="--dot:${escapeHtml(status.color)}"></span>
+          <div>
+            <h4>${escapeHtml(status.label)}</h4>
+            <p>${status.system_key ? "Estado base" : escapeHtml(status.key)}</p>
+          </div>
         </div>
-      </div>
-      <div class="pill-row">
-        <span class="state-pill">${status.active ? "Activo" : "Inactivo"}</span>
-        <span class="state-pill">Orden ${Number(status.sort_order || 0)}</span>
-        <span class="state-pill">${status.team ? escapeHtml(status.team) : "Global"}</span>
-        ${status.is_done ? `<span class="state-pill">Cierra tarea</span>` : ""}
-      </div>
-      <div class="card-actions">
-        <button type="button" data-edit-status="${escapeHtml(status.key)}">Editar</button>
-        <button class="danger-action" type="button" data-delete-status="${escapeHtml(status.key)}" ${status.system_key ? "disabled" : ""}>Borrar</button>
-      </div>
-    </article>
-  `).join("");
+        <div class="pill-row">
+          <span class="state-pill">${status.active ? "Activo" : "Inactivo"}</span>
+          <span class="state-pill">Orden ${Number(status.sort_order || 0)}</span>
+          <span class="state-pill">${status.team ? escapeHtml(status.team) : "Global"}</span>
+          ${status.is_done ? `<span class="state-pill">Cierra tarea</span>` : ""}
+        </div>
+        <div class="card-actions">
+          <button type="button" data-edit-status="${escapeHtml(status.key)}" ${canManage ? "" : "disabled"}>Editar</button>
+          <button class="danger-action" type="button" data-delete-status="${escapeHtml(status.key)}" ${status.system_key || !canManage ? "disabled" : ""}>Borrar</button>
+        </div>
+      </article>
+    `;
+  }).join("");
 }
 
 function renderUsers() {
