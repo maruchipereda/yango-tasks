@@ -32,6 +32,7 @@ DEFAULT_STATUSES = [
 SYSTEM_STATUS_KEYS = {"todo", "done"}
 MANAGER_ROLES = {"manager", "area_manager"}
 USER_ROLES = {"admin", "manager", "area_manager", "colaborador"}
+MONTHLY_GOAL_COMPLETION_CAP = 150.0
 
 
 def now_iso():
@@ -530,7 +531,7 @@ def goal_completion(goal):
         return 0.0
     if target <= 0:
         return 0.0
-    return max(0.0, min((actual / target) * 100.0, 100.0))
+    return max(0.0, min((actual / target) * 100.0, MONTHLY_GOAL_COMPLETION_CAP))
 
 
 def public_monthly_goal(row):

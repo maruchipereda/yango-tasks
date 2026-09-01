@@ -11,6 +11,8 @@ const RECURRENCE = {
   monthly: "1 vez al mes",
 };
 
+const MONTHLY_GOAL_COMPLETION_CAP = 150;
+
 const state = {
   auth: null,
   user: null,
@@ -841,7 +843,7 @@ function goalCompletion(goal) {
   } else {
     const target = parseNumberValue(goal.target_value);
     const fact = parseNumberValue(goal.fact_value);
-    completion = target > 0 ? Math.max(0, Math.min((fact / target) * 100, 100)) : 0;
+    completion = target > 0 ? Math.max(0, Math.min((fact / target) * 100, MONTHLY_GOAL_COMPLETION_CAP)) : 0;
   }
   return { completion, weighted: completion * weight / 100 };
 }
@@ -882,7 +884,7 @@ function renderGoalMonthSection(monthData, canManage) {
         </div>
         <div class="goals-month-actions">
           <div class="goals-record-score">
-            <span data-goals-month-total>${Math.min(total, 100).toFixed(1)}%</span>
+            <span data-goals-month-total>${Math.min(total, MONTHLY_GOAL_COMPLETION_CAP).toFixed(1)}%</span>
             <small>cumplimiento ponderado</small>
           </div>
           ${canManage ? `<button class="secondary tiny-action" type="button" data-edit-goal-month="${escapeHtml(month)}">Editar</button>` : ""}
@@ -1057,7 +1059,7 @@ function updateGoalsSummary() {
         row.querySelector("[data-goal-completion]").textContent = `${calc.completion.toFixed(1)}%`;
         row.querySelector("[data-goal-weighted]").textContent = `${calc.weighted.toFixed(1)}%`;
       });
-      section.querySelector("[data-goals-month-total]").textContent = `${Math.min(sectionTotal, 100).toFixed(1)}%`;
+      section.querySelector("[data-goals-month-total]").textContent = `${Math.min(sectionTotal, MONTHLY_GOAL_COMPLETION_CAP).toFixed(1)}%`;
     });
     $("#goalsTotal").textContent = String(sections.length);
     $("#goalsTotalLabel").textContent = sections.length === 1 ? "mes cargado" : "meses cargados";
