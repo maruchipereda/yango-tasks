@@ -248,17 +248,44 @@ function activeStatuses(selected = "") {
   return allStatuses().filter((status) => status.active || String(status.key) === String(selected));
 }
 
+function dedupeStatusesByLabel(statuses, selectedValues = []) {
+  const selected = new Set((Array.isArray(selectedValues) ? selectedValues : [selectedValues]).filter(Boolean).map(String));
+  const byLabel = new Map();
+  statuses.forEach((status) => {
+    const labelKey = String(status.label || status.key).trim().toLowerCase();
+    const current = byLabel.get(labelKey);
+    if (!current) {
+      byLabel.set(labelKey, status);
+      return;
+    }
+    const statusSelected = selected.has(String(status.key));
+    const currentSelected = selected.has(String(current.key));
+    if (statusSelected && !currentSelected) {
+      byLabel.set(labelKey, status);
+      return;
+    }
+    if (!statusSelected && !currentSelected && current.team && !status.team) {
+      byLabel.set(labelKey, status);
+    }
+  });
+  return [...byLabel.values()];
+}
+
 function isDoneStatus(value) {
   const status = allStatuses().find((item) => item.key === value);
   return Boolean(status?.is_done) || value === "done";
 }
 
 function statusOptions(selected = "") {
-  return activeStatuses(selected).map((status) => `<option value="${status.key}" ${status.key === selected ? "selected" : ""}>${escapeHtml(status.label)}</option>`).join("");
+  return dedupeStatusesByLabel(activeStatuses(selected), selected)
+    .map((status) => `<option value="${status.key}" ${status.key === selected ? "selected" : ""}>${escapeHtml(status.label)}</option>`)
+    .join("");
 }
 
 function filterStatusOptions() {
-  return activeStatuses().map((status) => `<option value="${status.key}">${escapeHtml(status.label)}</option>`).join("");
+  return dedupeStatusesByLabel(activeStatuses())
+    .map((status) => `<option value="${status.key}">${escapeHtml(status.label)}</option>`)
+    .join("");
 }
 
 function categoryOptions(selected = "") {
@@ -316,13 +343,15 @@ function statusColor(value) {
 
 function statusOptionsList(selectedValues = []) {
   const selected = new Set(selectedValues.map((value) => String(value)));
-  return allStatuses()
-    .filter((status) => status.active || selected.has(String(status.key)))
+  return dedupeStatusesByLabel(
+    allStatuses().filter((status) => status.active || selected.has(String(status.key))),
+    selectedValues
+  )
     .map((status) => ({ value: status.key, label: status.label }));
 }
 
 function defaultStatusFilterValues() {
-  return activeStatuses()
+  return dedupeStatusesByLabel(activeStatuses())
     .filter((status) => !isDoneStatus(status.key))
     .map((status) => status.key);
 }
