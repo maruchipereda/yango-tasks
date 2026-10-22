@@ -23,6 +23,7 @@ const state = {
   userWorkload: { users: [], statuses: [] },
   monthlyGoals: { users: [], goals: [], month: "", selected_user_id: null, can_manage: false, total_completion: 0 },
   okrs: { periods: [], can_manage: false },
+  taskOkrs: null,
   activeView: "mine",
   dueWindow: "",
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "1",
@@ -446,6 +447,14 @@ function currentFilters(prefix) {
 }
 
 async function loadTasks() {
+  if (canViewOkrs() && state.taskOkrs === null) {
+    try {
+      await loadTaskOkrs();
+    } catch (error) {
+      state.taskOkrs = [];
+      toast(error.message);
+    }
+  }
   const prefix = state.activeView === "team" ? "team" : "mine";
   const query = currentFilters(prefix);
   const payload = await api(`/api/tasks${query ? `?${query}` : ""}`);
@@ -487,9 +496,15 @@ async function loadOkrs() {
   renderOkrs();
 }
 
+async function loadTaskOkrs() {
+  const payload = await api("/api/task-okrs");
+  state.taskOkrs = payload.objectives || [];
+}
+
 async function bootstrap() {
   const payload = await api("/api/bootstrap");
   state.user = payload.user;
+  state.taskOkrs = null;
   state.users = payload.users;
   state.categories = payload.categories;
   state.statuses = payload.statuses || [];
@@ -570,6 +585,41 @@ function taskRelatedLinks(task) {
   return links.map(normalizeRelatedLink).filter((link) => link.url);
 }
 
+function taskOkrLabel(objective) {
+  const firstLine = String(objective.regional_priorities || "").split(/\r?\n/).find((line) => line.trim()) || "Objetivo OKR";
+  const clean = firstLine.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim();
+  return `${objective.position}. ${clean.length > 72 ? `${clean.slice(0, 69)}...` : clean}`;
+}
+
+function renderTaskOkrOptions(selectedId = "", preserveUnavailable = false, clearUnavailable = false) {
+  const field = $("#taskOkrWrap");
+  field.classList.toggle("hidden", !canViewOkrs());
+  if (!canViewOkrs()) return;
+  const select = $("#taskOkrObjective");
+  const teams = new Set(selectedValues($("#taskAssignee"))
+    .map((id) => state.users.find((user) => String(user.id) === String(id))?.team)
+    .filter(Boolean));
+  const available = (state.taskOkrs || []).filter((objective) => teams.has(objective.team));
+  const selected = available.find((objective) => String(objective.id) === String(selectedId));
+  select.dataset.preserveUnavailable = String(Boolean(preserveUnavailable || (!clearUnavailable && selectedId && !selected)));
+  const groups = new Map();
+  available.forEach((objective) => {
+    const group = `${objective.team}||${objective.period_from}||${objective.period_to}`;
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(objective);
+  });
+  const otherArea = select.dataset.preserveUnavailable === "true";
+  select.innerHTML = `<option value="">${otherArea ? "OKR vinculado de otra área" : available.length ? "Sin OKR" : "No hay OKRs para estos responsables"}</option>` +
+    [...groups].map(([group, objectives]) => {
+      const [team, from, to] = group.split("||");
+      const period = `${monthLabel(from)} - ${monthLabel(to)}`;
+      const label = teams.size > 1 ? `${team} · ${period}` : period;
+      return `<optgroup label="${escapeHtml(label)}">${objectives.map((objective) =>
+        `<option value="${objective.id}" ${selected && objective.id === selected.id ? "selected" : ""}>${escapeHtml(taskOkrLabel(objective))}</option>`
+      ).join("")}</optgroup>`;
+    }).join("");
+}
+
 async function copyTextToClipboard(value) {
   const text = String(value || "");
   if (!text) return;
@@ -594,6 +644,7 @@ function taskCard(task) {
   const done = isDoneStatus(task.status);
   const categories = task.categories?.length ? task.categories : [{ name: task.category_name || "Sin categoría", color: task.category_color || "#111111" }];
   const tokenQuery = state.auth?.token ? `?token=${encodeURIComponent(state.auth.token)}` : "";
+  const linkedOkr = (state.taskOkrs || []).find((objective) => objective.id === task.okr_objective_id);
   return `
     <article class="task-card priority-${task.priority} ${overdue ? "is-overdue" : ""} ${done ? "is-done" : ""}" data-task-id="${task.id}">
       <div class="task-top">
@@ -611,6 +662,7 @@ function taskCard(task) {
         <span>${escapeHtml(task.assignee_name || "Sin responsable")}</span>
         <span class="${overdue ? "danger-text" : soon ? "warn-text" : ""}">${formatDate(task.due_date)}</span>
       </div>
+      ${linkedOkr ? `<div class="task-okr-ref" title="${escapeHtml(linkedOkr.regional_priorities)}">OKR · ${escapeHtml(taskOkrLabel(linkedOkr))}</div>` : ""}
       <div class="card-status" style="--status-color:${escapeHtml(statusColor(task.status))}">
         <span>Estado</span>
         <select class="card-status-select" data-status-task="${task.id}" aria-label="Cambiar estado de ${escapeHtml(task.title)}">
@@ -1232,6 +1284,7 @@ function okrObjectiveEditorItem(objective = blankOkrObjective(), index = 0) {
   const wrap = document.createElement("div");
   wrap.className = "okr-editor-card";
   wrap.dataset.okrObjective = "1";
+  wrap.dataset.okrObjectiveId = String(objective.id || "");
   wrap.innerHTML = `
     <div class="okr-editor-head">
       <strong>Objetivo ${index + 1}</strong>
@@ -1297,6 +1350,7 @@ function closeOkrModal() {
 
 function collectOkrObjectives() {
   return [...$("#okrObjectives").querySelectorAll("[data-okr-objective]")].map((row) => ({
+    id: row.dataset.okrObjectiveId || "",
     regional_priorities: row.querySelector("[data-okr-regional]").value.trim(),
     key_north_stars: row.querySelector("[data-okr-north]").value.trim(),
     kpi1_description: row.querySelector("[data-okr-kpi1-desc]").value.trim(),
@@ -1409,6 +1463,7 @@ function openTask(task = null) {
   $("#taskStatus").innerHTML = statusOptions(task?.status || "todo");
   $("#taskPriority").value = task?.priority || "media";
   $("#taskDueDate").value = task?.due_date || "";
+  renderTaskOkrOptions(task?.okr_objective_id || "", Boolean(task?.okr_linked_elsewhere));
   renderRelatedLinksEditor(taskRelatedLinks(task || {}));
   $("#taskRecurrence").value = task?.recurrence_interval || "";
   $("#taskRecurrenceNext").value = task?.recurrence_next_date || "";
@@ -1458,6 +1513,7 @@ function openUser(user = null) {
 async function refreshBootstrapLists() {
   const payload = await api("/api/bootstrap");
   state.user = payload.user;
+  state.taskOkrs = null;
   state.users = payload.users;
   state.categories = payload.categories;
   state.statuses = payload.statuses || [];
@@ -1658,6 +1714,10 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("change", async (event) => {
+  if (event.target.id === "taskOkrObjective") {
+    event.target.dataset.preserveUnavailable = "false";
+    return;
+  }
   const statusSelect = event.target.closest(".card-status-select[data-status-task]");
   if (statusSelect) {
     try {
@@ -1675,7 +1735,11 @@ document.addEventListener("change", async (event) => {
     menu.dataset.values = values.join(",");
     renderFilterMenu(menu.id, menu.dataset.filterMenu);
     menu.querySelector(".filter-popover")?.classList.remove("hidden");
-    if (menu.id === "taskAssignee" || menu.id === "taskCategory") return;
+    if (menu.id === "taskAssignee") {
+      renderTaskOkrOptions($("#taskOkrObjective").value, false, true);
+      return;
+    }
+    if (menu.id === "taskCategory") return;
     try {
       await loadTasks();
     } catch (error) {
@@ -1721,6 +1785,8 @@ $("#taskForm").addEventListener("submit", async (event) => {
         status: $("#taskStatus").value,
         priority: $("#taskPriority").value,
         due_date: $("#taskDueDate").value,
+        ...(canViewOkrs() && $("#taskOkrObjective").dataset.preserveUnavailable !== "true"
+          ? { okr_objective_id: $("#taskOkrObjective").value } : {}),
         related_links: relatedLinksFromEditor(),
         recurrence_interval: $("#taskRecurrence").value,
         recurrence_next_date: $("#taskRecurrenceNext").value,
@@ -1886,6 +1952,7 @@ $("#okrForm").addEventListener("submit", async (event) => {
       }),
     });
     state.okrs = payload;
+    state.taskOkrs = null;
     renderOkrs();
     closeOkrModal();
     toast("OKRs guardados");
@@ -1903,6 +1970,7 @@ $("#deleteOkrBtn").addEventListener("click", async () => {
       body: JSON.stringify({ id: okrId }),
     });
     state.okrs = payload;
+    state.taskOkrs = null;
     renderOkrs();
     closeOkrModal();
     toast("OKRs borrados");

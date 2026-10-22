@@ -723,6 +723,14 @@ body.sidebar-collapsed .sidebar-logout {
   overflow-wrap: anywhere;
 }
 
+.task-okr-ref {
+  min-width: 0;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .danger-text {
   color: #b51e15;
 }

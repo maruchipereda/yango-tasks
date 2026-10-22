@@ -333,7 +333,10 @@ def task_select(clause=""):
                 categories.color
             ) as category_colors,
             categories.name as category_name,
-            categories.color as category_color
+            categories.color as category_color,
+            (select okr_periods.team from okr_objectives
+             join okr_periods on okr_periods.id = okr_objectives.okr_id
+             where okr_objectives.id = tasks.okr_objective_id) as okr_team
         from tasks
         left join task_assignees on task_assignees.task_id = tasks.id
         left join users on users.id = task_assignees.user_id
@@ -382,10 +385,15 @@ def normalize_related_links(value):
     return links[:12]
 
 
-def public_task(row):
+def public_task(row, user=None):
     data = row_to_dict(row)
     if not data:
         return None
+    okr_team = data.pop("okr_team", None)
+    data["okr_linked_elsewhere"] = False
+    if user and (not can_view_okrs(user) or (user["role"] != "admin" and okr_team != user["team"])):
+        data["okr_linked_elsewhere"] = bool(data.get("okr_objective_id"))
+        data["okr_objective_id"] = None
     ids = task_assignee_ids(data)
     names = [item for item in clean_text(data.get("assignee_name")).split("||") if item]
     emails = [item for item in clean_text(data.get("assignee_email")).split("||") if item]
@@ -680,6 +688,58 @@ def list_okrs(user):
     return {"periods": periods, "can_manage": can_manage_okrs(user)}
 
 
+def list_task_okrs(user):
+    if not can_view_okrs(user):
+        return []
+    where, params = okr_scope_clause(user)
+    with db() as con:
+        return [
+            row_to_dict(row)
+            for row in con.execute(
+                f"""
+                select okr_objectives.id, okr_objectives.position,
+                       okr_objectives.regional_priorities,
+                       okr_periods.team, okr_periods.period_from, okr_periods.period_to
+                from okr_objectives
+                join okr_periods on okr_periods.id = okr_objectives.okr_id
+                {where}
+                order by okr_periods.period_from desc, okr_periods.period_to desc,
+                         okr_periods.id desc, okr_objectives.position
+                """,
+                params,
+            )
+        ]
+
+
+def validate_task_okr(con, user, raw_id, assignee_ids):
+    if not can_view_okrs(user):
+        raise ValueError("No tienes acceso a OKRs")
+    if raw_id in (None, ""):
+        return None
+    value = clean_text(raw_id)
+    if not value.isdigit():
+        raise ValueError("OKR inválido")
+    row = con.execute(
+        """
+        select okr_periods.team
+        from okr_objectives
+        join okr_periods on okr_periods.id = okr_objectives.okr_id
+        where okr_objectives.id = ?
+        """,
+        (int(value),),
+    ).fetchone()
+    if not row or (user["role"] != "admin" and row["team"] != user["team"]):
+        raise ValueError("OKR no disponible para tu área")
+    placeholders = ",".join("?" for _ in assignee_ids)
+    teams = {
+        item["team"]
+        for item in con.execute(f"select distinct team from users where id in ({placeholders})", assignee_ids)
+    }
+    if row["team"] not in teams:
+        raise ValueError("El OKR debe pertenecer al área de un responsable")
+    return int(value)
+
+
 def list_categories(user=None):
     scope_clause, scope_params = taxonomy_team_clause(user, include_global=user is None or user.get("role") != "area_manager")
     where = f"where 1 = 1{scope_clause}" if scope_clause else ""
@@ -873,7 +933,7 @@ def list_tasks_for(user, query):
             tasks.updated_at desc
     """
     with db() as con:
-        return [public_task(row) for row in con.execute(sql, params)]
+        return [public_task(row, user) for row in con.execute(sql, params)]
 
 
 def get_task(con, task_id):
@@ -1058,6 +1118,8 @@ def ensure_categories_team_flexible(con):
 
 def ensure_task_columns(con):
     existing = {row["name"] for row in con.execute("pragma table_info(tasks)")}
+    if "okr_objective_id" not in existing:
+        con.execute("alter table tasks add column okr_objective_id integer")
     if "notes_mode" not in existing:
         con.execute("alter table tasks add column notes_mode text not null default 'notes'")
     if "checklist_json" not in existing:
@@ -1085,6 +1147,7 @@ def tasks_table_sql():
             status text not null,
             priority text not null check (priority in ('alta', 'media', 'baja')),
             due_date text,
+            okr_objective_id integer,
             related_link text,
             related_links_json text not null default '[]',
             attachment_path text,
@@ -1207,7 +1270,7 @@ def ensure_tasks_status_flexible(con):
     con.execute(tasks_table_sql())
     columns = [
         "id", "title", "description", "assigned_user_id", "category_id", "status", "priority",
-        "due_date", "related_link", "related_links_json", "attachment_path", "attachment_name",
+        "due_date", "okr_objective_id", "related_link", "related_links_json", "attachment_path", "attachment_name",
         "attachment_type", "notes_mode", "checklist_json", "recurrence_interval", "recurrence_next_date",
         "recurrence_source_id", "recurrence_run_date", "created_by", "created_at", "updated_at",
     ]
@@ -1359,6 +1422,7 @@ def validate_okr_payload(body):
         if not all(required):
             raise ValueError("Completa todos los campos de cada OKR")
         normalized.append({
+            "id": int(row.get("id") or 0),
             "position": index,
             "regional_priorities": regional_priorities,
             "key_north_stars": key_north_stars,
@@ -1469,10 +1533,10 @@ def create_due_recurring_tasks(con):
                     """
                     insert into tasks (
                         title, description, assigned_user_id, category_id, status, priority,
-                        due_date, related_link, related_links_json, attachment_path, attachment_name, attachment_type,
+                        due_date, okr_objective_id, related_link, related_links_json, attachment_path, attachment_name, attachment_type,
                         notes_mode, checklist_json, recurrence_interval, recurrence_next_date,
                         recurrence_source_id, recurrence_run_date, created_by, created_at, updated_at
-                    ) values (?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?, ?, ?, ?, ?, '', null, ?, ?, ?, ?, ?)
+                    ) values (?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', null, ?, ?, ?, ?, ?)
                     """,
                     (
                         task["title"],
@@ -1481,6 +1545,7 @@ def create_due_recurring_tasks(con):
                         task.get("category_id"),
                         task["priority"],
                         due_date,
+                        task.get("okr_objective_id"),
                         task.get("related_link"),
                         task.get("related_links_json") or "[]",
                         task.get("attachment_path"),
@@ -1703,6 +1768,11 @@ class Handler(BaseHTTPRequestHandler):
             if not can_view_okrs(user):
                 return send_json(self, {"error": "No autorizado"}, 403)
             return send_json(self, list_okrs(user))
+        if parsed.path == "/api/task-okrs":
+            user = require_user(self)
+            if user is None:
+                return
+            return send_json(self, {"objectives": list_task_okrs(user)})
         if parsed.path == "/api/export":
             user = require_user(self)
             if user is None:
@@ -1790,6 +1860,10 @@ class Handler(BaseHTTPRequestHandler):
                             if not can_edit_task(user, current_data):
                                 return send_json(self, {"error": "No autorizado"}, 403)
                             assigned_user_ids = resolve_assignees(con, body, user, task_id=task_id)
+                            okr_objective_id = (
+                                validate_task_okr(con, user, body["okr_objective_id"], assigned_user_ids)
+                                if "okr_objective_id" in body else current_data.get("okr_objective_id")
+                            )
                             if not attachment_path:
                                 attachment_path = current_data.get("attachment_path")
                                 attachment_name = current_data.get("attachment_name")
@@ -1798,7 +1872,7 @@ class Handler(BaseHTTPRequestHandler):
                                 """
                                 update tasks set
                                     title = ?, description = ?, assigned_user_id = ?, category_id = ?,
-                                    status = ?, priority = ?, due_date = ?, related_link = ?, related_links_json = ?,
+                                    status = ?, priority = ?, due_date = ?, okr_objective_id = ?, related_link = ?, related_links_json = ?,
                                     attachment_path = ?, attachment_name = ?, attachment_type = ?,
                                     notes_mode = ?, checklist_json = ?,
                                     recurrence_interval = ?, recurrence_next_date = ?,
@@ -1813,6 +1887,7 @@ class Handler(BaseHTTPRequestHandler):
                                     status,
                                     priority,
                                     clean_text(body.get("due_date")),
+                                    okr_objective_id,
                                     related_link,
                                     related_links_json,
                                     attachment_path,
@@ -1830,14 +1905,18 @@ class Handler(BaseHTTPRequestHandler):
                             set_task_categories(con, task_id, category_ids)
                         else:
                             assigned_user_ids = resolve_assignees(con, body, user)
+                            okr_objective_id = (
+                                validate_task_okr(con, user, body["okr_objective_id"], assigned_user_ids)
+                                if "okr_objective_id" in body else None
+                            )
                             task_id = con.execute(
                                 """
                                 insert into tasks (
                                     title, description, assigned_user_id, category_id, status, priority,
-                                    due_date, related_link, related_links_json, attachment_path, attachment_name, attachment_type,
+                                    due_date, okr_objective_id, related_link, related_links_json, attachment_path, attachment_name, attachment_type,
                                     notes_mode, checklist_json, recurrence_interval, recurrence_next_date,
                                     created_by, created_at, updated_at
-                                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 """,
                                 (
                                     title,
@@ -1847,6 +1926,7 @@ class Handler(BaseHTTPRequestHandler):
                                     status,
                                     priority,
                                     clean_text(body.get("due_date")),
+                                    okr_objective_id,
                                     related_link,
                                     related_links_json,
                                     attachment_path,
@@ -1864,7 +1944,7 @@ class Handler(BaseHTTPRequestHandler):
                             set_task_assignees(con, task_id, assigned_user_ids)
                             set_task_categories(con, task_id, category_ids)
                         row = get_task(con, task_id)
-                return send_json(self, {"task": public_task(row)}, 201 if not body.get("id") else 200)
+                return send_json(self, {"task": public_task(row, user)}, 201 if not body.get("id") else 200)
 
             if parsed.path == "/api/tasks/status":
                 task_id = int(body.get("id") or 0)
@@ -1883,7 +1963,7 @@ class Handler(BaseHTTPRequestHandler):
                         (status, timestamp, task_id),
                     )
                     row = get_task(con, task_id)
-                return send_json(self, {"task": public_task(row)})
+                return send_json(self, {"task": public_task(row, user)})
 
             if parsed.path == "/api/tasks/checklist":
                 task_id = int(body.get("id") or 0)
@@ -1900,7 +1980,7 @@ class Handler(BaseHTTPRequestHandler):
                         (checklist_json, timestamp, task_id),
                     )
                     row = get_task(con, task_id)
-                return send_json(self, {"task": public_task(row)})
+                return send_json(self, {"task": public_task(row, user)})
 
             if parsed.path == "/api/tasks/delete":
                 task_id = int(body.get("id") or 0)
@@ -2036,6 +2116,9 @@ class Handler(BaseHTTPRequestHandler):
                     return send_json(self, {"error": "Solo admin puede gestionar OKRs"}, 403)
                 okr_id, period_from, period_to, objectives = validate_okr_payload(body)
                 timestamp = now_iso()
+                submitted_ids = [objective["id"] for objective in objectives if objective["id"]]
+                if len(submitted_ids) != len(set(submitted_ids)):
+                    return send_json(self, {"error": "Objetivo OKR inválido"}, 400)
                 with db() as con:
                     if okr_id:
                         existing = con.execute("select * from okr_periods where id = ?", (okr_id,)).fetchone()
@@ -2043,12 +2126,18 @@ class Handler(BaseHTTPRequestHandler):
                             return send_json(self, {"error": "OKR no encontrado"}, 404)
                         if not can_touch_okr_period(user, row_to_dict(existing)):
                             return send_json(self, {"error": "No autorizado"}, 403)
+                        existing_ids = {
+                            row["id"] for row in con.execute("select id from okr_objectives where okr_id = ?", (okr_id,))
+                        }
+                        if not set(submitted_ids) <= existing_ids:
+                            return send_json(self, {"error": "Objetivo OKR inválido"}, 400)
                         con.execute(
                             "update okr_periods set period_from = ?, period_to = ?, updated_at = ? where id = ?",
                             (period_from, period_to, timestamp, okr_id),
                         )
-                        con.execute("delete from okr_objectives where okr_id = ?", (okr_id,))
                     else:
+                        if any(objective["id"] for objective in objectives):
+                            return send_json(self, {"error": "Objetivo OKR inválido"}, 400)
                         team = user["team"]
                         okr_id = con.execute(
                             """
@@ -2057,30 +2146,48 @@ class Handler(BaseHTTPRequestHandler):
                             """,
                             (period_from, period_to, team, user["id"], timestamp, timestamp),
                         ).lastrowid
+                        existing_ids = set()
                     for objective in objectives:
+                        values = (
+                            objective["position"], objective["regional_priorities"], objective["key_north_stars"],
+                            objective["kpi1_description"], objective["kpi1_from"], objective["kpi1_to"],
+                            objective["kpi2_description"], objective["kpi2_from"], objective["kpi2_to"],
+                            objective["proposed_projects"], objective["kpi_owner"],
+                        )
+                        if objective["id"]:
+                            con.execute(
+                                """
+                                update okr_objectives set
+                                    position = ?, regional_priorities = ?, key_north_stars = ?,
+                                    kpi1_description = ?, kpi1_from = ?, kpi1_to = ?,
+                                    kpi2_description = ?, kpi2_from = ?, kpi2_to = ?,
+                                    proposed_projects = ?, kpi_owner = ?
+                                where id = ?
+                                """,
+                                (*values, objective["id"]),
+                            )
+                        else:
+                            con.execute(
+                                """
+                                insert into okr_objectives (
+                                    okr_id, position, regional_priorities, key_north_stars,
+                                    kpi1_description, kpi1_from, kpi1_to,
+                                    kpi2_description, kpi2_from, kpi2_to,
+                                    proposed_projects, kpi_owner
+                                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (okr_id, *values),
+                            )
+                    removed_ids = existing_ids - set(submitted_ids)
+                    if removed_ids:
+                        placeholders = ",".join("?" for _ in removed_ids)
                         con.execute(
-                            """
-                            insert into okr_objectives (
-                                okr_id, position, regional_priorities, key_north_stars,
-                                kpi1_description, kpi1_from, kpi1_to,
-                                kpi2_description, kpi2_from, kpi2_to,
-                                proposed_projects, kpi_owner
-                            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                okr_id,
-                                objective["position"],
-                                objective["regional_priorities"],
-                                objective["key_north_stars"],
-                                objective["kpi1_description"],
-                                objective["kpi1_from"],
-                                objective["kpi1_to"],
-                                objective["kpi2_description"],
-                                objective["kpi2_from"],
-                                objective["kpi2_to"],
-                                objective["proposed_projects"],
-                                objective["kpi_owner"],
-                            ),
+                            f"update tasks set okr_objective_id = null where okr_objective_id in ({placeholders})",
+                            list(removed_ids),
+                        )
+                        con.execute(
+                            f"delete from okr_objectives where id in ({placeholders})",
+                            list(removed_ids),
                         )
                 return send_json(self, list_okrs(user))
 
@@ -2096,6 +2203,10 @@ class Handler(BaseHTTPRequestHandler):
                         return send_json(self, {"error": "OKR no encontrado"}, 404)
                     if not can_touch_okr_period(user, row_to_dict(existing)):
                         return send_json(self, {"error": "No autorizado"}, 403)
+                    con.execute(
+                        "update tasks set okr_objective_id = null where okr_objective_id in (select id from okr_objectives where okr_id = ?)",
+                        (okr_id,),
+                    )
                     con.execute("delete from okr_objectives where okr_id = ?", (okr_id,))
                     con.execute("delete from okr_periods where id = ?", (okr_id,))
                 return send_json(self, list_okrs(user))
